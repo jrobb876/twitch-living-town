@@ -1,6 +1,6 @@
 # Twitch Living Town
 
-A cozy, seeded 2D village for the Codex x TwitchCon Hackathon. This first milestone is a local Next.js application with a PixiJS village and Mochi, its cat-like Mayor. Twitch is **not connected** and town changes are **not persisted** yet.
+A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-independent event simulation and Mochi, its cat-like Mayor. The original visual style remains the Town Overview. Twitch is **not connected** and town changes are **not persisted** yet.
 
 ## Run locally
 
@@ -22,7 +22,21 @@ No credentials or environment configuration are required. Optionally copy `.env.
 - Use the on-screen plus, minus, fit, and arrow buttons (also suitable for touch).
 - Focus the village with Tab: arrow keys pan, `+` / `-` zoom, and `0` fits the town.
 - **Regenerate town** creates a new unsigned 32-bit seed and rebuilds the scene. The displayed seed identifies its generated data; reloading currently restores the starter seed `20261027`.
-- The Mayor wanders between houses, the plaza and Town Hall, pausing along the way. Reduced-motion preference stops the decorative animation and wandering.
+- The Mayor wanders between houses, the plaza and Town Hall, visits newly assigned homes and celebrates arrivals. Reduced-motion preference stops cosmetic movement; logical simulation and counters continue.
+
+## Try the simulated interactions
+
+Run `npm run dev`, open http://localhost:3000 and expand **Event simulator** below the village. All identities and events are simulated; no login is required.
+
+1. **New follower:** residents increase; houses stay at 12. Watch for a welcome message and small resident actor.
+2. **New subscriber:** an expansion home appears and receives an owner. The Mayor follows paths to visit it and celebrate. Camera zoom/pan should stay unchanged.
+3. **Retry last event ID:** no extra resident, house or effect. **Resubscription** retains the subscriber's existing home and shows a welcome-back message.
+4. **Gift 2 subscriptions**, then **Replay gift recipients:** the gift count and ownership remain unchanged on replay. The event log acknowledges the gifter. Two expansion plots are filled first; later owners receive existing unclaimed homes. After 14 owners, additional subscribers are waitlisted.
+5. **Chat burst:** eight sample people raise activity and ambient movement. Repeatedly press **Repeated chat**: the same text/user earns no additional activity during the window. With no chat, the score fades to peaceful within 60 seconds.
+6. **Incoming raid:** Town Hall welcomes 25 temporary visitors for 20 seconds; house/resident counts stay unchanged.
+7. **Reset demo town:** clear events, owners, residents and activity while keeping the seed. **Regenerate town** also changes the seed. Reload restores the starter demo.
+
+Production builds hide the simulator by default. For an explicitly authorized demo, set `TOWN_DEMO_MODE=true` in the build environment before `npm run build`. Rebuild with it unset or `false` to disable again. Setting it only at `npm start` does not change a previously prerendered page. This flag grants no backend privileges; there is no event mutation endpoint.
 
 The browser needs WebGL and hardware acceleration. A loading state and retryable error message cover renderer startup failures. All visuals use local procedural graphics or inline SVG, with no art downloads or external font requests.
 
@@ -36,9 +50,9 @@ npm run build
 npm start
 ```
 
-`npm start` serves the production build at http://localhost:3000. Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests verify deterministic generation, variation, house count, expansion space and connected, bidirectional navigation.
+`npm start` serves the production build at http://localhost:3000. Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, placement stability, event/ownership/gift deduplication, chat decay, behavior transitions, snapshot restore, capacity, town isolation and simulator gating.
 
-Foundation validation: lint, TypeScript, both generator tests and the production build passed; the local development and production routes returned HTTP 200. Visual browser testing could not be completed because the Windows browser-control tool could not reliably determine the current browser URL. Manually verify the rendered town, Mayor motion, regeneration and camera controls in a WebGL-capable browser. The HTTP check alone does not verify the canvas.
+Final Prompt 002 validation passed: lint, TypeScript, all 18 tests and production build. Generated production HTML confirms the simulator is disabled by default. Browser interactions were not automatically tested after resuming, as requested; manually verify the steps above, Mayor animation, camera pan/zoom and regeneration in Chrome. See TASKS.md for validation details.
 
 ## Structure
 
@@ -46,14 +60,23 @@ Foundation validation: lint, TypeScript, both generator tests and the production
 src/app/                         App Router page, metadata, global/Tailwind styles
 src/components/town-experience.tsx  UI, seed state, Mayor portrait
 src/components/town-canvas.tsx      Client-only loading and React lifecycle
-src/lib/town/types.ts               Serializable town model
+src/lib/town/types.ts               Original deterministic layout types
 src/lib/town/generate.ts            Pure seeded procedural generation
 src/lib/town/generate.test.ts       Determinism and topology tests
 src/lib/rendering/draw-town.ts      Programmatic village and Mayor artwork
 src/lib/rendering/create-renderer.ts PixiJS lifecycle, animation and camera
+src/lib/rendering/overview.ts       Shared-world to overview projection
+src/lib/simulation/types.ts         Durable world, transient runtime, internal events
+src/lib/simulation/world.ts         World/session construction and selectors
+src/lib/simulation/engine.ts        Pure event handling and time advancement
+src/lib/simulation/activity.ts      Rolling activity and spam suppression
+src/lib/simulation/behavior.ts      Renderer-independent routing and behavior
+src/lib/simulation/repository.ts    Future persistence boundary; in-memory example
+src/lib/simulation/config.ts        Development/authorized-demo gate
+src/components/event-simulator.tsx  Local simulated-event controls
 ```
 
-The spatial layout deliberately uses a fixed connected block template. Seeds vary house styles, colors, small placements, trees and flowers. It is not yet an arbitrary terrain or road-layout generator. The 12 homes are placeholders without residents or ownership, and the two reserved plots represent future expansion.
+The spatial layout uses a fixed connected block template. Seeds vary appearance and planting. New subscribers never trigger regeneration: two expansion plots and 12 unclaimed starter homes provide 14 ownership slots. Arbitrary district expansion, waitlist fulfillment and a customization editor are deferred. Runtime effects are not part of the saved-world shape. The UI session and example repository are in memory only; there is no disk/database persistence.
 
 ## Stack
 

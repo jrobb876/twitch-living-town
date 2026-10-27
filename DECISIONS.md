@@ -1,5 +1,22 @@
 # Technical decisions
 
+## 2026-10-27 — Town functionality and event simulation
+
+These decisions extend the foundation below; simulation behavior is now owned by the domain layer rather than the renderer.
+
+1. **Keep the Town Overview.** Preserve the generator, original 12 home coordinates and procedural visual language. No isometric renderer or major redesign.
+2. **Separate durable world from transient runtime.** `TownWorld` carries schema/generator versions, town/streamer identity, layout, districts, plots, buildings, ownership, residents, Mayor identity and delivery/gift ledgers. `TownRuntime` carries activity, actor behavior, effects and clock. Both are JSON-safe; only the world crosses the future persistence boundary.
+3. **Use world coordinates and semantic appearance.** Camera scaling never changes model coordinates. Colors, architecture and decoration IDs are asset-independent. `overviewOf` translates the shared model to the original graphics shapes; future renderers can project the same world.
+4. **Pure events and explicit time.** `processEvent` returns a new session and outcome; `tickTown` advances behavior/decay with an injected clock. Neither imports React, PixiJS nor browser APIs. The React demo updates at 100 ms; PixiJS interpolates presentation independently.
+5. **Stable ownership and finite capacity.** Fill two expansion plots, then assign original unclaimed demo homes without relocation/restyling. One home per Twitch user per town. At 14 owners, keep subscribers on an explicit waitlist instead of moving buildings or inventing terrain. Resubscriptions reconcile missing initial records and keep maximum cumulative months.
+6. **Delivery and semantic deduplication.** Persist processed event IDs in the world snapshot and retain owner uniqueness independently of event ID. Retried deliveries return the original result marked duplicate, with no new effect. Production will need transactional uniqueness and an event retention policy; the in-memory ledger is intentionally unbounded for this demo.
+7. **Explicit gift correlation.** A stable group ID joins aggregate and recipient events. Count each group using maximum announced total versus unique identified recipients. Do not create recipients for anonymous aggregates or correlate by timing alone. The future Twitch adapter must establish trustworthy group IDs; there is no live adapter yet.
+8. **Anti-spam activity.** A 60-second linearly decaying window, one credited message per user per 10 seconds, identical normalized-message suppression, and a 100-point cap. Transient samples hold normalized text; world snapshots do not. Activity increases resident/Mayor movement and reduces idle pauses.
+9. **Mayor remains the companion.** Graph routing and task transitions live in `behavior.ts`. The renderer shows wandering, approach and celebration states. New homes enqueue visits; raids briefly prioritize Town Hall. Runtime queues/effects are bounded, and reduced-motion users see static actor presentation while logical state continues.
+10. **Production simulator opt-in is explicit.** Server-provided gate: development, or `TOWN_DEMO_MODE=true` during build. No public event endpoint exists. A future backend must enforce authorization independently; a demo flag is not a security boundary for durable writes.
+11. **Temporary in-memory persistence boundary.** React holds the live demo session. A repository interface plus defensive-copy implementation demonstrates separate town load/save without introducing a database. Reload/reset clear demo state. Restoring a saved world recreates ambient actors without replaying historical effects.
+12. **Update scenes without resetting cameras.** `TownRenderer.update` accepts the latest session. Building changes rebuild the static scene inside the existing camera container; chat, residents and effects update without recreating the canvas. Regeneration/reset deliberately remount the scene.
+
 ## 2026-10-27 — Foundation
 
 1. **Next.js App Router, React and strict TypeScript.** Establish the intended full-stack application directly in the existing root. Preserve the repository and origin remote; do not initialize Git, commit or push as part of scaffolding.

@@ -2,8 +2,12 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { generateTown } from "@/lib/town/generate";
+import { useEffect, useState } from "react";
+import { createWorld, createSession, giftCount, housesIn } from "@/lib/simulation/world";
+import { processEvent, tickTown } from "@/lib/simulation/engine";
+import type { TownEvent } from "@/lib/simulation/types";
+
+const EventSimulator = dynamic(() => import("./event-simulator"), { ssr: false });
 
 const TownCanvas = dynamic(() => import("./town-canvas"), { ssr: false, loading: () => <div className="canvas-message">Opening the village gates…</div> });
 const townName = process.env.NEXT_PUBLIC_TOWN_NAME || "Willowbrook";
@@ -25,19 +29,33 @@ function CatPortrait() {
   </svg>;
 }
 
-export default function TownExperience() {
-  const [seed, setSeed] = useState(20261027);
-  const town = useMemo(() => generateTown(seed), [seed]);
+export default function TownExperience({ enableSimulator = false }: { enableSimulator?: boolean }) {
+  const [generation, setGeneration] = useState({ seed: 20261027, revision: 0 });
+  return <TownSessionView key={`${generation.seed}:${generation.revision}`} seed={generation.seed} enableSimulator={enableSimulator}
+    onReset={() => setGeneration((current) => ({ ...current, revision: current.revision + 1 }))}
+    onRegenerate={(seed) => setGeneration((current) => ({ seed, revision: current.revision + 1 }))} />;
+}
+
+function TownSessionView({ seed, enableSimulator, onReset, onRegenerate }: { seed: number; enableSimulator: boolean; onReset: () => void; onRegenerate: (seed: number) => void }) {
+  const [session, setSession] = useState(() => createSession(createWorld({ id: "demo-willowbrook", streamerTwitchUserId: "sim-streamer", seed, name: townName, mayorName })));
+  useEffect(() => {
+    const start = performance.now();
+    const timer = window.setInterval(() => setSession((current) => tickTown(current, performance.now() - start)), 100);
+    return () => window.clearInterval(timer);
+  }, []);
+  function sendEvent(event: TownEvent) { setSession((current) => processEvent(current, event).state); }
+  const { world, runtime } = session;
+  const mayorStatus = { idle: "Enjoying a peaceful moment", wandering: "On a little neighborhood stroll", approaching: "On the way to welcome a neighbor", celebrating: "Celebrating with a neighbor!", welcoming: "Welcoming visitors at Town Hall!" }[runtime.mayor.behavior];
   function regenerate() {
     const value = crypto.getRandomValues(new Uint32Array(1))[0];
-    setSeed((previous) => value === previous ? (previous + 1) >>> 0 : value);
+    onRegenerate(value === seed ? (seed + 1) >>> 0 : value);
   }
   return (
     <div className="app-shell">
       <header className="site-header">
         <Link href="/" className="brand" aria-label="Twitch Living Town home"><span className="brand-mark">⌂<i>✦</i></span><span>living town<span className="brand-subtitle">A LITTLE PLACE TO BELONG</span></span></Link>
         <div className="header-center"><span className="green-dot" />Your community, a little closer.</div>
-        <span className="prototype-tag">TWITCHCON HACKATHON <span>·</span> PROTOTYPE 01</span>
+        <span className="prototype-tag">TWITCHCON HACKATHON <span>·</span> TOWN OVERVIEW</span>
       </header>
       <main>
         <section className="town-heading" aria-labelledby="town-title">
@@ -47,7 +65,8 @@ export default function TownExperience() {
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">
             <div className="map-topline"><span className="map-badge"><span className="green-dot" />{townName} <span className="badge-divider">/</span> Town view</span><span className="weather"><span>☀</span> A lovely day to wander</span></div>
-            <TownCanvas key={seed} town={town} mayorName={mayorName} />
+            <TownCanvas session={session} />
+            {runtime.effects.length > 0 && <div className="town-announcement" role="status">{runtime.effects.at(-1)!.label}</div>}
             <div className="map-bottomline"><span><i className="map-dot" />Procedurally grown, with love</span><span>Drag to explore <b>·</b> Scroll to zoom</span></div>
           </div>
           <aside className="town-sidebar">
@@ -56,12 +75,17 @@ export default function TownExperience() {
               <div className="mayor-portrait"><CatPortrait /></div>
               <h2>{mayorName}<span className="mayor-badge">MAYOR</span></h2>
               <p>Small paws. Big responsibilities.</p>
-              <div className="mayor-status"><span className="green-dot" />On a little neighborhood stroll</div>
+              <div className="mayor-status"><span className="green-dot" />{mayorStatus}</div>
               <div className="mayor-note">“Just checking that everyone has a nice sunny spot.”<span>— The Mayor’s daily agenda</span></div>
             </section>
             <section className="neighborhood-card">
               <div className="card-eyebrow">OUR LITTLE NEIGHBORHOOD</div>
-              <div className="stats-row"><span className="stat-icon">⌂</span><div><strong>{town.houses.length}</strong><span>Cozy homes</span></div><span className="stat-note">& room to grow</span></div>
+              <div className="stats-row"><span className="stat-icon">⌂</span><div><strong>{housesIn(world).length}</strong><span>Cozy homes</span></div><span className="stat-note">{world.residents.filter((r) => r.houseId).length} subscriber owned</span></div>
+              <div className="neighborhood-detail"><span>Residents / subscribers</span><strong>{world.residents.length} / {world.residents.filter((r) => r.isSubscriber).length}</strong></div>
+              <div className="neighborhood-detail"><span>Community gifts</span><strong>{giftCount(world)}</strong></div>
+              <div className="neighborhood-detail"><span>Chat activity</span><strong>{runtime.activity.level} · {runtime.activity.score}/100</strong></div>
+              <meter className="activity-meter" aria-label="Community chat activity" min={0} max={100} value={runtime.activity.score} />
+              {world.residents.some((r) => r.housingStatus === "waiting") && <p className="housing-note">All plots allocated. {world.residents.filter((r) => r.housingStatus === "waiting").length} subscriber(s) awaiting expansion.</p>}
               <div className="neighborhood-detail"><span>Town heart</span><strong>Willow Green</strong></div>
               <div className="neighborhood-detail"><span>Headquarters</span><strong>Town Hall</strong></div>
               <div className="seed-display"><span>WORLD SEED</span><code aria-live="polite">{seed}</code></div>
@@ -69,6 +93,7 @@ export default function TownExperience() {
             <section className="future-note"><span aria-hidden="true">✿</span><div><h3>A town that grows with you</h3><p>Today, a first village. Soon, a home for your Twitch community.</p><span className="local-label">LOCAL DEMO · TWITCH NOT CONNECTED</span></div></section>
           </aside>
         </section>
+        {enableSimulator && <EventSimulator state={session} onEvent={sendEvent} onReset={onReset} />}
         <footer className="page-footer"><span><span className="footer-leaf">❧</span> Every community deserves a place to call home.</span><span>Twitch Living Town <b>/</b> Foundation & first village</span></footer>
       </main>
     </div>

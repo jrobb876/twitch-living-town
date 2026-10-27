@@ -1,9 +1,10 @@
-import { Application, Text } from "pixi.js";
-import { seededRandom } from "../town/generate";
-import type { Town } from "../town/types";
+import { Application, Container, Graphics, Text } from "pixi.js";
+import type { TownSession } from "../simulation/types";
+import { overviewOf } from "./overview";
 import { drawMayor, drawTown } from "./draw-town";
 
 export type TownRenderer = {
+  update: (session: TownSession) => void;
   zoom: (factor: number) => void;
   pan: (dx: number, dy: number) => void;
   reset: () => void;
@@ -11,7 +12,7 @@ export type TownRenderer = {
 };
 
 /** Browser-only owner of GPU resources, ticker, camera and native listeners. */
-export async function createTownRenderer(host: HTMLElement, town: Town, mayorName: string, signal: AbortSignal): Promise<TownRenderer | null> {
+export async function createTownRenderer(host: HTMLElement, initial: TownSession, signal: AbortSignal): Promise<TownRenderer | null> {
   const app = new Application();
   await app.init({
     width: Math.max(1, host.clientWidth), height: Math.max(1, host.clientHeight),
@@ -33,45 +34,70 @@ export async function createTownRenderer(host: HTMLElement, town: Town, mayorNam
   try {
     host.appendChild(app.canvas);
     app.canvas.setAttribute("aria-hidden", "true");
-    const { world, actors } = drawTown(town); app.stage.addChild(world);
+    let snapshot = initial;
+    const town = initial.world.layout;
+    const world = new Container(); app.stage.addChild(world);
+    let scene = drawTown(overviewOf(initial.world)); world.addChild(scene.world);
+    let actors = scene.actors;
     const { mayor, body, tail } = drawMayor(); actors.addChild(mayor);
-    const badge = new Text({ text: mayorName, style: { fontFamily: "Arial", fontWeight: "600", fontSize: 11, fill: 0x405e4a } });
+    const badge = new Text({ text: initial.world.mayor.name, style: { fontFamily: "Arial", fontWeight: "600", fontSize: 11, fill: 0x405e4a } });
     badge.anchor.set(0.5); badge.y = -66; mayor.addChild(badge);
-    const random = seededRandom(town.seed ^ 0xcafe);
-    const nodes = new Map(town.navigation.map((node) => [node.id, node]));
-    let current = nodes.get("1-2")!;
-    let previous = "";
-    let target = current;
-    let rest = 1.5;
     let elapsed = 0;
-    mayor.position.set(current.x, current.y);
+    mayor.position.set(initial.runtime.mayor.position.x, initial.runtime.mayor.position.y);
+    const residents = new Map<string, Graphics>();
+    const effectsLayer = new Container(); world.addChild(effectsLayer);
+    const effects = new Map<string, Container>();
+    const update = (next: TownSession) => {
+      if (destroyed) return;
+      if (next.world.buildings !== snapshot.world.buildings) {
+        mayor.removeFromParent(); residents.forEach((actor) => actor.removeFromParent());
+        scene.world.destroy({ children: true });
+        scene = drawTown(overviewOf(next.world)); actors = scene.actors;
+        world.addChildAt(scene.world, 0); actors.addChild(mayor);
+        residents.forEach((actor) => actors.addChild(actor));
+      }
+      for (const { residentId, actor } of next.runtime.residentActors) {
+        if (!residents.has(residentId)) {
+          const person = new Graphics().ellipse(0, 2, 7, 3).fill({ color: 0x48664c, alpha: 0.15 })
+            .roundRect(-5, -12, 10, 13, 4).fill([0xa286ac, 0x729baf, 0xc89678][residents.size % 3])
+            .circle(0, -17, 5).fill(0xf3d6b0);
+          person.position.set(actor.position.x, actor.position.y); actors.addChild(person); residents.set(residentId, person);
+        }
+      }
+      for (const [id, visual] of effects) if (!next.runtime.effects.some((effect) => effect.id === id)) { visual.destroy({ children: true }); effects.delete(id); }
+      for (const effect of next.runtime.effects) if (!effects.has(effect.id)) {
+        const visual = new Container(); visual.position.set(effect.position.x, effect.position.y - 85);
+        const text = new Text({ text: effect.label, style: { fontFamily: "Arial", fontSize: 13, fontWeight: "600", fill: 0x425e4d, wordWrap: true, wordWrapWidth: 210, align: "center" } });
+        text.anchor.set(0.5);
+        const backing = new Graphics().roundRect(-text.width / 2 - 12, -text.height / 2 - 9, text.width + 24, text.height + 18, 8).fill(0xfff6dc).stroke({ color: 0xc3b48f, width: 1 });
+        for (let i = 0; i < 8; i++) backing.circle(-50 + i * 15, -28 - (i % 3) * 8, 3).fill([0xe5b093, 0xa0b875, 0xb3a2c6][i % 3]);
+        visual.addChild(backing, text); effectsLayer.addChild(visual); effects.set(effect.id, visual);
+      }
+      snapshot = next;
+    };
+    update(initial);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     app.ticker.maxFPS = 60;
     app.ticker.add((ticker) => {
       const dt = Math.min(ticker.deltaMS / 1000, 0.05); elapsed += dt;
       if (reducedMotion) return;
-      let walking = false;
-      if (rest > 0) {
-        rest -= dt;
-        if (rest <= 0) {
-          const choices = current.neighbors.filter((id) => id !== previous);
-          target = nodes.get((choices.length ? choices : current.neighbors)[Math.floor(random() * (choices.length || current.neighbors.length))])!;
-        }
-      } else {
-        const dx = target.x - mayor.x, dy = target.y - mayor.y;
-        const distance = Math.hypot(dx, dy);
-        if (distance < 36 * dt) {
-          mayor.position.set(target.x, target.y); previous = current.id; current = target;
-          rest = current.id.startsWith("home") || current.id === "hall" ? 2 + random() * 3 : 0.2 + random();
-        } else {
-          walking = true; mayor.x += (dx / distance) * 36 * dt; mayor.y += (dy / distance) * 36 * dt;
-          if (Math.abs(dx) > 1) body.scale.x = dx > 0 ? 1 : -1;
-        }
-      }
+      const state = snapshot.runtime.mayor;
+      const walking = state.targetNodeId !== null;
+      const blend = Math.min(1, dt * 15);
+      const dx = state.position.x - mayor.x;
+      mayor.x += dx * blend; mayor.y += (state.position.y - mayor.y) * blend;
+      if (Math.abs(dx) > 0.2) body.scale.x = dx > 0 ? 1 : -1;
       mayor.zIndex = mayor.y;
-      body.y = Math.sin(elapsed * (walking ? 12 : 2.5)) * (walking ? 2 : 0.8);
+      const celebrating = state.behavior === "celebrating" || state.behavior === "welcoming";
+      body.y = celebrating ? -Math.abs(Math.sin(elapsed * 8)) * 6 : Math.sin(elapsed * (walking ? 12 : 2.5)) * (walking ? 2 : 0.8);
       body.rotation = walking ? Math.sin(elapsed * 12) * 0.035 : 0;
       tail.rotation = Math.sin(elapsed * 2) * 0.1;
+      for (const { residentId, actor } of snapshot.runtime.residentActors) {
+        const visual = residents.get(residentId)!;
+        visual.x += (actor.position.x - visual.x) * blend;
+        visual.y += (actor.position.y - visual.y) * blend;
+        visual.zIndex = visual.y;
+      }
     });
     let fit = 1;
     const clampCamera = () => {
@@ -153,6 +179,6 @@ export async function createTownRenderer(host: HTMLElement, town: Town, mayorNam
       canvas.removeEventListener("wheel", wheel);
       host.removeEventListener("keydown", keyboard);
     });
-    return { zoom, pan, reset, destroy };
+    return { update, zoom, pan, reset, destroy };
   } catch (error) { destroy(); throw error; }
 }
