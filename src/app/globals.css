@@ -1,5 +1,20 @@
 @import "tailwindcss";
 
+.account-controls, .account-identity { display: flex; align-items: center; gap: 12px; }
+.account-controls { flex-wrap: wrap; justify-content: flex-end; font-size: 12px; }
+.account-avatar { border-radius: 50%; flex-shrink: 0; }
+.account-button { display: inline-block; padding: 9px 13px; border: 1px solid #b9c8b0; background: #f1f3e9; border-radius: 7px; color: #3e614b; text-decoration: none; font-size: 12px; }
+.account-button:hover { background: #e3eadb; }
+.account-loading { color: #77846e; font-size: 11px; }
+.account-error { color: #835f40; font-size: 11px; line-height: 1.5; max-width: 300px; margin: 0; }
+.account-page { max-width: 760px; padding-top: 45px; padding-bottom: 45px; }
+.account-page > .eyebrow { margin: 30px 0 20px; }
+.account-profile { padding: 28px; border: 1px solid #dce3d1; border-radius: 12px; background: #fcfbf6; }
+.account-profile h1 { font-size: 30px; margin: 0 0 9px; }
+.account-profile p { font-size: 13px; line-height: 1.7; color: #64755c; margin: 12px 0; }
+.account-notice { padding: 14px; border-radius: 8px; background: #edf1e5; font-size: 13px; line-height: 1.6; }
+@media (max-width: 800px) { .site-header:has(.account-controls) { height: auto; min-height: 80px; padding-top: 14px; padding-bottom: 14px; flex-wrap: wrap; } .site-header .prototype-tag { display: none; } }
+
 .event-simulator { margin-top: 20px; padding: 17px 20px; border: 1px solid #dce3d1; border-radius: 12px; background: #f2f3e9; }
 .event-simulator summary { cursor: pointer; font-weight: 600; font-size: 13px; }
 .event-simulator summary span { margin-left: 12px; font-size: 8px; letter-spacing: 1px; color: #708364; }

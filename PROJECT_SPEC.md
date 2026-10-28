@@ -4,9 +4,9 @@
 
 A persistent, procedurally generated cozy town representing a Twitch streamer's community. Followers become residents; subscribers receive customizable houses. Chat animates the community, while subscriptions, gifts, raids and eventually Bits trigger town activities. Each streamer will choose and name a cat-like **Mayor**, headquartered at Town Hall.
 
-The current visual style remains the **Town Overview**. The deterministic generator, 12 original homes, plaza, Town Hall, landscaping, camera controls and regeneration are preserved. A detailed isometric Living Town renderer is deferred. All visuals remain programmatic.
+The current visual style remains the **Town Overview**. The deterministic generator, 12 original homes, plaza, Town Hall, landscaping, camera controls and regeneration are preserved. A detailed isometric Living Town renderer is deferred. Town artwork remains programmatic; the account UI can show the authenticated Twitch profile picture.
 
-This milestone adds renderer-independent simulation, ownership, activity, events and a development simulator. The app uses Next.js App Router, React, TypeScript, Tailwind, ESLint and PixiJS v8.
+The simulation milestone added renderer-independent ownership, activity, events and a development simulator. The current milestone adds secure Twitch identity connection for streamers and viewers without changing those features. The app uses Next.js App Router, React, TypeScript, Tailwind, ESLint and PixiJS v8.
 
 ## Architecture
 
@@ -65,7 +65,30 @@ Higher activity increases travel speed and shortens idle pauses. Mayor tasks rou
 
 The collapsible simulator generates sample `sim-*` identities and supports all six event types, chat bursts, repeated-message checks, gift-recipient replay, exact event-ID retry and reset. Reset keeps the seed and clears the session. Regeneration changes the seed and clears the session.
 
-The server enables the simulator only in development or with `TOWN_DEMO_MODE=true` explicitly supplied **at build time** for an authorized demo. Production defaults to disabled. There is no event-writing API or shared server state. This opt-in is not authentication; future durable mutations require server authorization.
+The server enables the simulator only in development or with `TOWN_DEMO_MODE=true` explicitly supplied **at build time** for an authorized demo. Production defaults to disabled. There is no event-writing API or shared server town state. This opt-in is not authentication; future durable mutations require server authorization.
+
+## Twitch identity and authorization
+
+The registered application is **Living Town**. Server-only configuration consists of `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI` and a random base64 32-byte `SESSION_SECRET`. No extra Twitch scopes are requested; Get Users supplies ID, login, display name and profile picture, excluding email and role/subscription claims.
+
+```text
+Connect button → GET /api/auth/twitch/login → Twitch consent
+              → GET /api/auth/twitch/callback → /account
+                   server exchange → validate → Get Users → opaque session cookie
+Account widget → GET /api/auth/session → public profile + logout CSRF only
+Sign out       → POST /api/auth/logout → local invalidation + Twitch revocation
+Future mutation → requireTownOwner(session, townId, trusted repository)
+```
+
+State is 256-bit random, browser-bound using a separate HttpOnly cookie, stored by HMAC digest, consumed atomically before any exchange and expires in ten minutes. Missing, mismatched, reused and expired state, duplicate parameters and denied authorizations are rejected. Callback failures never echo upstream descriptions, credentials or codes.
+
+Sessions use opaque 256-bit IDs, eight-hour absolute expiry, host-only HttpOnly/SameSite=Lax cookies, and Secure `__Host-` cookies in production. Server-memory records store HMAC session keys and AES-256-GCM encrypted OAuth tokens with record-specific associated data. The server-only composition root owns environment access, the Twitch client, memory store and validation timer. Core services accept injected clocks/storage/clients for testing without real credentials.
+
+Login validates Twitch client ID and stable numeric user ID against Get Users. Startup re-entry validates retained sessions; a process restart has no retained sessions. A minute timer checks sessions whose validation is at least 30 minutes old, even without browser traffic. Stale reads also validate, and owner guards force validation. Refresh is reactive after known token expiry and an invalid-token response; unexpected revocation or failed validation removes affected sessions. Concurrent reads share the same session validation operation. Sign-out requires same-origin form POST and session-bound CSRF, removes sessions locally first, then revokes access tokens; failed revocations retry for at most an hour in memory.
+
+The public town stays accessible signed out. The real account does not replace simulated residents, assign a town, or prove an active subscription. Ownership is checked against `TownWorld.streamerTwitchUserId` loaded from a trusted server repository for each town. No viewer can gain administration through a display name, profile type or client-supplied ownership field. There are no administrative mutation endpoints yet; all future such endpoints must use the guard and enforce mutation CSRF.
+
+This phase supports one continuously running Node process, capped at 200 sessions/1,000 pending logins. Restart loses auth and revocation records. Shared atomic storage, distributed refresh coordination, scheduled validation, durable ownership and subscription verification are prerequisites for multi-process/serverless deployment. No database is introduced here. Production authentication requires HTTPS and deployment log redaction for OAuth callbacks.
 
 ## Persistence and future product
 
@@ -73,6 +96,6 @@ The UI holds one TownSession in React memory. TownRepository and its defensive-c
 
 Before persistence: implement transactions and unique constraints for event IDs, owners and gift recipients, schema migrations, event retention and authoritative clocks. The demo retains a complete delivery ledger in memory for retry correctness and is not designed for unlimited ingestion.
 
-Planned surfaces: public town directory, streamer dashboard, subscriber portal, realtime renderer, OBS overlay, Twitch OAuth/Helix/EventSub, and PostgreSQL/Supabase with later Fastify/Socket.IO services.
+Planned surfaces: public town directory, streamer dashboard, subscriber portal, realtime renderer, OBS overlay, live Twitch EventSub/Helix features beyond identity, and PostgreSQL/Supabase with later Fastify/Socket.IO services.
 
-No authentication, live integration, database, Socket.IO, OBS, customization editor, Bits processing, arbitrary expansion or isometric renderer is implemented. Customization currently means an asset-independent data structure. Richer Mayor naps, inspections and personality remain future work.
+Twitch OAuth and Helix identity are implemented. Live community events, database persistence, Socket.IO, OBS, customization editor, subscription verification, Bits processing, arbitrary expansion and an isometric renderer remain deferred. Customization currently means an asset-independent data structure. Richer Mayor naps, inspections and personality remain future work.

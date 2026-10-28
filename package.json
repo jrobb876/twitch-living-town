@@ -8,13 +8,14 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx --test src/lib/town/generate.test.ts src/lib/simulation/simulation.test.ts"
+    "test": "tsx --test src/lib/town/generate.test.ts src/lib/simulation/simulation.test.ts src/lib/auth/*.test.ts"
   },
   "dependencies": {
     "next": "16.4.3",
+    "pixi.js": "^8.22.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "pixi.js": "^8.22.0"
+    "server-only": "^0.0.1"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -24,8 +25,10 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.3",
     "tailwindcss": "^4",
-    "typescript": "^5",
-    "tsx": "^4"
+    "tsx": "^4",
+    "typescript": "^5"
   },
-  "engines": { "node": ">=22.0.0" }
+  "engines": {
+    "node": ">=22.0.0"
+  }
 }

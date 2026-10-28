@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { createWorld, createSession, giftCount, housesIn } from "@/lib/simulation/world";
 import { processEvent, tickTown } from "@/lib/simulation/engine";
 import type { TownEvent } from "@/lib/simulation/types";
+import TwitchAccount from "./twitch-account";
 
 const EventSimulator = dynamic(() => import("./event-simulator"), { ssr: false });
 
@@ -54,7 +55,7 @@ function TownSessionView({ seed, enableSimulator, onReset, onRegenerate }: { see
     <div className="app-shell">
       <header className="site-header">
         <Link href="/" className="brand" aria-label="Twitch Living Town home"><span className="brand-mark">⌂<i>✦</i></span><span>living town<span className="brand-subtitle">A LITTLE PLACE TO BELONG</span></span></Link>
-        <div className="header-center"><span className="green-dot" />Your community, a little closer.</div>
+        <TwitchAccount />
         <span className="prototype-tag">TWITCHCON HACKATHON <span>·</span> TOWN OVERVIEW</span>
       </header>
       <main>
