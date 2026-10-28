@@ -2,11 +2,15 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { createWorld, createSession, giftCount, housesIn } from "@/lib/simulation/world";
 import { processEvent, tickTown } from "@/lib/simulation/engine";
 import type { TownEvent } from "@/lib/simulation/types";
 import TwitchAccount from "./twitch-account";
+import ChatConnection from "./chat-connection";
+import { createLiveView, projectLiveActivity } from "@/lib/chat/projection";
+import type { ChatSnapshot } from "@/lib/chat/types";
+import type { TownSession } from "@/lib/simulation/types";
 
 const EventSimulator = dynamic(() => import("./event-simulator"), { ssr: false });
 
@@ -32,19 +36,31 @@ function CatPortrait() {
 
 export default function TownExperience({ enableSimulator = false }: { enableSimulator?: boolean }) {
   const [generation, setGeneration] = useState({ seed: 20261027, revision: 0 });
-  return <TownSessionView key={`${generation.seed}:${generation.revision}`} seed={generation.seed} enableSimulator={enableSimulator}
+  const [mode, setMode] = useState<"live" | "simulated">("simulated");
+  return <TownSessionView key={`${generation.seed}:${generation.revision}`} seed={generation.seed} enableSimulator={enableSimulator} mode={mode} setMode={setMode}
     onReset={() => setGeneration((current) => ({ ...current, revision: current.revision + 1 }))}
     onRegenerate={(seed) => setGeneration((current) => ({ seed, revision: current.revision + 1 }))} />;
 }
 
-function TownSessionView({ seed, enableSimulator, onReset, onRegenerate }: { seed: number; enableSimulator: boolean; onReset: () => void; onRegenerate: (seed: number) => void }) {
-  const [session, setSession] = useState(() => createSession(createWorld({ id: "demo-willowbrook", streamerTwitchUserId: "sim-streamer", seed, name: townName, mayorName })));
+function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRegenerate }: { seed: number; enableSimulator: boolean; mode: "live" | "simulated"; setMode: (mode: "live" | "simulated") => void; onReset: () => void; onRegenerate: (seed: number) => void }) {
+  const [demoSession, setSession] = useState(() => createSession(createWorld({ id: "demo-willowbrook", streamerTwitchUserId: "sim-streamer", seed, name: townName, mayorName })));
+  const [liveSession, setLiveSession] = useState<TownSession | null>(null);
+  const receiveSnapshot = useCallback((snapshot: ChatSnapshot | null) => {
+    if (!snapshot) { setLiveSession(null); setMode("simulated"); return; }
+    setLiveSession((current) => projectLiveActivity(current?.world.id === snapshot.townId ? current
+      : createLiveView(snapshot, seed, townName, mayorName, 0), snapshot));
+  }, [seed, setMode]);
   useEffect(() => {
     const start = performance.now();
-    const timer = window.setInterval(() => setSession((current) => tickTown(current, performance.now() - start)), 100);
+    const timer = window.setInterval(() => {
+      const now = performance.now() - start;
+      setSession((current) => tickTown(current, now));
+      setLiveSession((current) => current ? tickTown(current, now) : null);
+    }, 100);
     return () => window.clearInterval(timer);
   }, []);
   function sendEvent(event: TownEvent) { setSession((current) => processEvent(current, event).state); }
+  const session = mode === "live" && liveSession ? liveSession : demoSession;
   const { world, runtime } = session;
   const mayorStatus = { idle: "Enjoying a peaceful moment", wandering: "On a little neighborhood stroll", approaching: "On the way to welcome a neighbor", celebrating: "Celebrating with a neighbor!", welcoming: "Welcoming visitors at Town Hall!" }[runtime.mayor.behavior];
   function regenerate() {
@@ -63,10 +79,11 @@ function TownSessionView({ seed, enableSimulator, onReset, onRegenerate }: { see
           <div><div className="eyebrow">A COMMUNITY IN BLOOM <span>✿</span></div><h1 id="town-title">Welcome to {townName}<span>.</span></h1><p>A cozy little world. A place for everyone. One very small Mayor.</p></div>
           <button className="primary-button regenerate" onClick={regenerate}><span aria-hidden="true">⟳</span> Regenerate town</button>
         </section>
+        <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} />
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">
             <div className="map-topline"><span className="map-badge"><span className="green-dot" />{townName} <span className="badge-divider">/</span> Town view</span><span className="weather"><span>☀</span> A lovely day to wander</span></div>
-            <TownCanvas session={session} />
+            <TownCanvas key={session.world.id} session={session} />
             {runtime.effects.length > 0 && <div className="town-announcement" role="status">{runtime.effects.at(-1)!.label}</div>}
             <div className="map-bottomline"><span><i className="map-dot" />Procedurally grown, with love</span><span>Drag to explore <b>·</b> Scroll to zoom</span></div>
           </div>
@@ -91,10 +108,10 @@ function TownSessionView({ seed, enableSimulator, onReset, onRegenerate }: { see
               <div className="neighborhood-detail"><span>Headquarters</span><strong>Town Hall</strong></div>
               <div className="seed-display"><span>WORLD SEED</span><code aria-live="polite">{seed}</code></div>
             </section>
-            <section className="future-note"><span aria-hidden="true">✿</span><div><h3>A town that grows with you</h3><p>Today, a first village. Soon, a home for your Twitch community.</p><span className="local-label">LOCAL DEMO · TWITCH NOT CONNECTED</span></div></section>
+            <section className="future-note"><span aria-hidden="true">✿</span><div><h3>A town that grows with you</h3><p>Today, a first village. Soon, a home for your Twitch community.</p><span className="local-label">{mode === "live" ? "LIVE CHAT SOURCE · TOWN IN MEMORY" : "SIMULATED TOWN · LOCAL EVENTS"}</span></div></section>
           </aside>
         </section>
-        {enableSimulator && <EventSimulator state={session} onEvent={sendEvent} onReset={onReset} />}
+        {enableSimulator && mode === "simulated" && <EventSimulator state={demoSession} onEvent={sendEvent} onReset={onReset} />}
         <footer className="page-footer"><span><span className="footer-leaf">❧</span> Every community deserves a place to call home.</span><span>Twitch Living Town <b>/</b> Foundation & first village</span></footer>
       </main>
     </div>

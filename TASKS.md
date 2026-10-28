@@ -43,7 +43,7 @@
 2. Add canvas lifecycle/camera retention integration tests and broader mobile/touch checks.
 3. Implement incremental districts and housing waitlist fulfillment.
 4. Design transactional PostgreSQL tables, durable tenant ownership, shared auth storage, validation workers, event retention and migrations.
-5. Define Twitch adapter payload validation and stable gift correlation before live integration.
+5. Define stable gift correlation and payload validation before adding live event types beyond chat.
 6. Add customization controls and public multi-town routing once persistence and ownership provisioning are ready.
 
 ## Completed: secure Twitch authentication (Prompt 003)
@@ -81,4 +81,46 @@
 
 ## Deferred
 
-Live EventSub/chat, Helix features beyond identity, Supabase/PostgreSQL, Fastify, Socket.IO, OBS, subscriber entitlement verification, customization editor, Bits, detailed isometric renderer, production art/audio and complex Mayor AI. All town changes and auth sessions remain in memory. No automatic commits or pushes.
+Real follower/subscription/gift/raid/Bits/Channel Points events, Supabase/PostgreSQL, Fastify, Socket.IO, OBS, subscriber entitlement verification, customization editor, detailed isometric renderer, production art/audio and complex Mayor AI. All town changes, live activity and auth sessions remain in memory. No automatic commits or pushes.
+
+## Completed: EventSub chat (Prompt 004)
+
+- [x] Inspect the existing auth, event domain, renderer and installed Next documentation; verify Twitch's current protocol.
+- [x] Add deliberate `user:read:chat` authorization, granted-scope validation and same-account upgrade binding.
+- [x] Keep OAuth credentials encrypted/server-side and preserve periodic validation/refresh.
+- [x] Add one shared server-side WebSocket per channel, welcome-based subscription, keepalive watchdog, backoff and Twitch-directed handoff.
+- [x] Reject malformed/foreign events; deduplicate stable Twitch chat message IDs and preserve spam/decay rules.
+- [x] Apply chat through the existing processor without storing readable content or creating follower/subscriber records.
+- [x] Add authenticated, CSRF-protected own-channel controls and private status/activity projection.
+- [x] Wire live activity to existing Mayor/ambient movement and meter; retain independent development simulation and seeded generation.
+- [x] Add source labels, channel/permission/connection status, last-event time, connect/reconnect/disconnect and source switching.
+- [x] Add offline tests for permissions, sockets, routing, source separation, shared tabs and authorization lifecycle.
+- [x] Update README, specification, decisions and environment template; no new secrets or worker command.
+
+## Validation for Prompt 004
+
+- [x] Final lint: passed with no errors or warnings.
+- [x] Final TypeScript validation: passed.
+- [x] Final full test suite: all 71 passed, including all original town/simulation/auth tests and 18 new chat integration/protocol tests.
+- [x] Final production build: passed; home remains static and all four chat routes are dynamic Node handlers.
+- [x] Diff check passed; `.env.local` remains ignored/untracked and unmodified. Renderer, camera, seeded generator and simulator component are unchanged.
+- [ ] Manual Chrome: reauthorize the existing account, connect its channel, receive real chat, observe activity/decay, compare two tabs and exercise simulator/camera/regeneration. Follow README. No automated browser interaction testing.
+
+## Prompt 004C — Chat delivery diagnosis
+
+- [x] Trace subscription creation, own-channel/token checks, socket lifecycle, mapping, dedup and the existing processor. Live user trace identifies `invalid_message_id` after notification receipt.
+- [x] Accept opaque delivery/chat IDs unchanged instead of enforcing a URL-safe alphabet; retain malformed-input bounds and exact-ID deduplication.
+- [x] Reproduce and fix notifications lost before the subscription HTTP response; bound the pending queue and discard it on failure/stop.
+- [x] Add development-only safe diagnostics and separate WebSocket/subscription readiness in the connection panel.
+- [x] Add regressions for opaque IDs, broadcaster chat, duplicate delivery, early notifications, queue bounds/cleanup, invalid subscription responses and diagnostic privacy.
+- [x] Final validation: lint, TypeScript, all 84 tests and production build passed.
+- [x] Real-chat server trace after the correction: subscription HTTP 202 with all identity/status/transport checks passing; four messages accepted/count incremented, spam-credit suppression preserved, subsequent keepalive received.
+- [x] User confirmed the browser message counter increased to four after the fix.
+- [ ] User visual regression checks for activity display, camera/Mayor/simulator. No browser automation, commit or push.
+
+## Chat limitations and next work
+
+- Single continuously running Node process only. Restart clears sessions/connections/activity; full restart required after auth/service implementation upgrades.
+- One-second polling; no public live-town viewer, durable stream-owner provisioning, shared storage or multi-replica worker leases.
+- Maximum 100 channel entries; bounded live dedup/outcome/activity retention. No replay of messages lost during ordinary reconnects.
+- Live scope covers chat only. Real event authorization, durable dedup, other channel events and subscription verification remain separate future milestones.

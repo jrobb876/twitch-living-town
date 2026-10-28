@@ -12,7 +12,7 @@ export const testEnv = {
 export class FakeTwitch implements TwitchGateway {
   tokens: OAuthTokens = { accessToken: "test-access", refreshToken: "test-refresh" };
   identity: AccountProfile = { twitchUserId: "12345", login: "neighbor", displayName: "Neighbor", profileImageUrl: null };
-  validation: TokenValidation = { clientId: "test-client", userId: "12345", expiresIn: 7200 };
+  validation: TokenValidation = { clientId: "test-client", userId: "12345", expiresIn: 7200, scopes: [] };
   exchanges: string[] = [];
   validations: string[] = [];
   refreshes: string[] = [];

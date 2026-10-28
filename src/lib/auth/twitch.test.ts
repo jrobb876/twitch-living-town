@@ -47,7 +47,7 @@ test("validation and identity use the correct headers and expose only whiteliste
     Response.json({ client_id: "test-client", user_id: "123", expires_in: 3600, scopes: [] }),
     Response.json({ data: [{ id: "123", login: "viewer", display_name: "Viewer", profile_image_url: "https://static-cdn.jtvnw.net/example.png", email: "not-requested@example.com", broadcaster_type: "partner" }] }),
   ]);
-  assert.deepEqual(await f.api.validate("test-access"), { clientId: "test-client", userId: "123", expiresIn: 3600 });
+  assert.deepEqual(await f.api.validate("test-access"), { clientId: "test-client", userId: "123", expiresIn: 3600, scopes: [] });
   assert.deepEqual(await f.api.profile("test-access"), { twitchUserId: "123", login: "viewer", displayName: "Viewer", profileImageUrl: "https://static-cdn.jtvnw.net/example.png" });
   assert.equal(f.calls[0].url, "https://id.twitch.tv/oauth2/validate");
   assert.equal(new Headers(f.calls[0].options.headers).get("authorization"), "OAuth test-access");
@@ -85,4 +85,11 @@ test("untrusted avatar URLs are omitted and ambiguous identities are rejected", 
     assert.equal((await f.api.profile("token")).profileImageUrl, null);
   }
   await assert.rejects(client([Response.json({ data: [] })]).api.profile("token"), error("invalid_token"));
+});
+
+test("scope normalization rejects malformed non-null grants and still rejects app-only tokens", async () => {
+  for (const scopes of ["user:read:chat", {}, ["user:read:chat", 123], false]) {
+    await assert.rejects(client([Response.json({ client_id: "test-client", user_id: "12345", expires_in: 3600, scopes })]).api.validate("synthetic-token"), error("invalid_token"));
+  }
+  await assert.rejects(client([Response.json({ client_id: "test-client", expires_in: 3600, scopes: null })]).api.validate("synthetic-token"), error("invalid_token"));
 });

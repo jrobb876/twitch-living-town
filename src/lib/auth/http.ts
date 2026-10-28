@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cookieNames, cookieOptions } from "./config";
-import { AuthError, SESSION_TTL_MS, STATE_TTL_MS } from "./types";
+import { AuthError, isAuthError, SESSION_TTL_MS, STATE_TTL_MS } from "./types";
+import { authDiagnostic, type AuthOperation } from "./diagnostics";
 import type { AuthService } from "./service";
 
 function privateResponse(response: NextResponse) {
@@ -12,7 +13,7 @@ function privateResponse(response: NextResponse) {
   return response;
 }
 function redirect(location: string) { return privateResponse(new NextResponse(null, { status: 303, headers: { Location: location } })); }
-function errorCode(error: unknown) { return error instanceof AuthError ? error.code : "unavailable"; }
+function errorCode(error: unknown) { return isAuthError(error) ? error.code : "unavailable"; }
 
 /** Shared handlers with dependency injection for credential-free HTTP tests. */
 export function createAuthHandlers(service: () => AuthService, production: boolean) {
@@ -20,28 +21,38 @@ export function createAuthHandlers(service: () => AuthService, production: boole
   function clear(response: NextResponse, name: string) { response.cookies.set(name, "", cookieOptions(production, 0)); }
   return {
     login(request: NextRequest) {
+      let operation: AuthOperation = "login_configuration";
+      authDiagnostic(operation, "start");
       try {
         const auth = service();
         if (request.nextUrl.origin !== auth.config.origin) throw new AuthError("forbidden");
+        operation = "login_state";
         const login = auth.beginLogin(request.cookies.get(names.state)?.value);
+        operation = "login_redirect";
         const response = redirect(login.location);
         response.cookies.set(names.state, login.binding, cookieOptions(production, STATE_TTL_MS / 1000));
+        authDiagnostic(operation, "success");
         return response;
-      } catch (error) { return redirect(`/account?auth=${errorCode(error)}`); }
+      } catch (error) { authDiagnostic(operation, "failure", error); return redirect(`/account?auth=${errorCode(error)}`); }
     },
     async callback(request: NextRequest) {
       let response: NextResponse;
       let auth: AuthService | undefined;
+      let operation: AuthOperation = "callback_configuration";
+      authDiagnostic(operation, "start");
       try {
         auth = service();
+        operation = "callback_parameters";
         const params = request.nextUrl.searchParams;
         if (request.nextUrl.origin !== auth.config.origin) throw new AuthError("state");
         for (const key of ["state", "code", "error"]) if (params.getAll(key).length > 1) throw new AuthError("state");
+        operation = "callback_session";
         const login = await auth.finishLogin({ state: params.get("state") ?? undefined, code: params.get("code") ?? undefined,
           error: params.get("error") ?? undefined }, request.cookies.get(names.state)?.value, request.cookies.get(names.session)?.value);
-        response = redirect("/account");
+        response = redirect(login.chatRequested ? "/?chat=authorized" : "/account");
         response.cookies.set(names.session, login.id, cookieOptions(production, SESSION_TTL_MS / 1000));
-      } catch (error) { response = redirect(`/account?auth=${errorCode(error)}`); }
+        authDiagnostic(operation, "success");
+      } catch (error) { authDiagnostic(operation, "failure", error); response = redirect(`/account?auth=${errorCode(error)}`); }
       auth?.cancelLogin(request.cookies.get(names.state)?.value);
       clear(response, names.state); // Never retain the OAuth binding after any callback.
       return response;

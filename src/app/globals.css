@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+.chat-connection { margin: 0 0 20px; padding: 16px 20px; border: 1px solid #dce3d1; border-radius: 12px; background: #f2f3e9; }
+.chat-connection-title, .chat-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.chat-connection p { font-size: 12px; line-height: 1.6; color: #64755c; }
+.chat-mode { font-size: 10px; padding: 4px 8px; border-radius: 5px; background: #e1e9d8; }
+.chat-connection .chat-note { font-size: 11px; margin-bottom: 0; }
+
 .account-controls, .account-identity { display: flex; align-items: center; gap: 12px; }
 .account-controls { flex-wrap: wrap; justify-content: flex-end; font-size: 12px; }
 .account-avatar { border-radius: 50%; flex-shrink: 0; }

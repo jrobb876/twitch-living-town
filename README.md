@@ -1,6 +1,6 @@
 # Twitch Living Town
 
-A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-independent event simulation and Mochi, its cat-like Mayor. The original visual style remains the Town Overview. Twitch account connection is implemented; town events are still simulated and town changes are **not persisted**.
+A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-independent event simulation and Mochi, its cat-like Mayor. The original visual style remains the Town Overview. Twitch login and real chat activity are implemented. Other community events remain simulated and town changes are **not persisted**.
 
 ## Run locally
 
@@ -33,7 +33,7 @@ Generate the session secret locally, then paste the output into `SESSION_SECRET`
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Restart `npm run dev` after configuring environment variables. Use **http://localhost:3000**, not `127.0.0.1` or another port: the origin and callback must match the registered redirect. No chat, moderation, subscription or email scopes are requested. Profile identity uses Twitch's Get Users API with an empty OAuth scope list.
+Restart `npm run dev` after configuring environment variables. Use **http://localhost:3000**, not `127.0.0.1` or another port: the origin and callback must match the registered redirect. Basic login requests no extra scopes. The separate **Authorize Twitch Chat** action requests only `user:read:chat`; no posting, moderation, subscription, follower or email permissions are requested.
 
 ### Manual login checklist (Chrome)
 
@@ -46,7 +46,21 @@ Restart `npm run dev` after configuring environment variables. Use **http://loca
 
 Automated tests use synthetic credentials and mocked Twitch responses. A real Twitch login and browser interaction testing are intentionally left to you.
 
-### Session and deployment limits
+### Safe OAuth diagnostics
+
+The server emits structured `twitch_auth` records with an operation, start/success/failure outcome, safe category, optional HTTP status and a fixed Twitch endpoint label. It never logs OAuth codes/state, token values, cookies, client/session secrets, request/response bodies, exception text/stacks or callback query strings. Normal Next callback access logging stays suppressed.
+
+For a failed login, fully stop the development server and restart `npm run dev` so retained auth instances load the latest diagnostic code. Start a **new** Connect with Twitch attempt; do not refresh/reuse an OAuth callback. A successful trace reaches `login_redirect`, `token_exchange`, `token_validation`, `profile`, then `callback_session` success. Chat upgrades add a granted-scope/account check; basic login requests no chat scope.
+
+- `login_configuration`, `login_state`, or `login_redirect` failures happen before the browser reaches Twitch; the login route's 303 alone does not prove successful authorization redirection.
+- `callback_state`/`callback_session` with `state` means missing, expired, mismatched or consumed state. No Twitch request is necessary to produce this failure.
+- `token_exchange`, `token_validation`, or `profile` with `dns`, `tls`, `connection`, `timeout` or `aborted` identifies the failing network operation. `http_error` includes only the HTTP status; a 400 exchange rejection becomes the safe `code` error, not proof of a network outage.
+- `token_scope_validation` means the validate response contained malformed non-null scopes (for example a string or a mixed-type array). Null/omitted scopes normalize to an empty list for basic login; chat still requires explicit `user:read:chat`. Client/user identity and expiry checks remain mandatory.
+- `identity_validation`, `chat_permission`, or `session_creation` identifies a local check/storage failure. `type_error` and `unexpected_error` indicate an unclassified exception, not confirmed external connectivity failure.
+
+Known AuthError categories are recognized by their allowlisted name/code across separate Next route bundles and hot reloads. A cached service's error must not be mislabeled as a Twitch outage merely because its constructor differs from the current handler's constructor. Diagnostic records can be shared for troubleshooting; do not share full callback URLs, browser cookies or credentials. A complete real OAuth round trip still requires manual browser verification.
+
+### Session storage and deployment
 
 Auth currently requires **one continuously running Node process**. Opaque 256-bit cookie IDs refer to server-memory records; only HMAC digests of IDs are stored. Access/refresh tokens are AES-256-GCM encrypted using keys derived from `SESSION_SECRET`. OAuth state is browser-bound, single-use and expires after ten minutes. No credentials or tokens enter browser storage, client bundles or public session responses. Tokens are held transiently in plaintext only while making server-side Twitch requests.
 
@@ -56,7 +70,43 @@ Session/state/revocation records disappear on restart; no tokens are persisted t
 
 For production authentication, register an **HTTPS** callback and configure `TWITCH_REDIRECT_URI` accordingly; plain HTTP is rejected in production. `npm start` over local HTTP remains useful for checking the town, but local OAuth testing should use `npm run dev`. Changing `SESSION_SECRET` requires a full process restart and invalidates sessions. Keep reverse-proxy/hosting access logs from recording callback query strings, authorization headers or token bodies. Next development callback request logging is suppressed in `next.config.ts`; infrastructure logging is configured separately.
 
-## Controls
+## Connect real Twitch chat (Prompt 004)
+
+No additional environment variables, webhook tunnel, worker command or dependencies are needed. EventSub runs on the server in the same continuously running Node process as the existing in-memory auth service. **Fully restart the development server after upgrading this code**, then use `npm run dev`. Hot reloads reuse a process-wide connection manager rather than creating duplicate sockets; restart after changing auth/connection internals so retained instances load the new code.
+
+1. Sign in to **Living Town** with the Twitch account whose own channel you want to connect. Return to the Town Overview. Existing basic sessions show **Chat permission: not granted**.
+2. In the **Twitch chat** panel, select **Authorize Twitch Chat** and approve `user:read:chat` for that same account. Declining keeps chat disconnected; switching accounts during this authorization is rejected. Successful authorization returns to the town with **Chat permission: authorized**.
+3. Select **Connect Chat**. Wait for **WebSocket: connected** and **Chat subscription: ready (channel.chat.message)**. Readiness requires the successful subscription response, not just the socket welcome. **LIVE SOURCE** identifies the selected town view; it does not promise a working subscription. On a second tab, select **View live town**; tabs share one Twitch connection.
+4. Open the connected channel's Twitch chat and send an ordinary message (you or another chatter can send it). Within roughly one second plus network latency, **Last event** and the message count update. The activity meter rises and the Mayor/ambient townspeople become more active. Ordinary chat creates no resident, follower, subscriber or house records.
+5. Try messages from several people to reach a higher activity level. One user earns credit at most every ten seconds, and repeated normalized text from that user earns no new credit during the 60-second window. Message count includes valid unique messages even when spam controls award no activity. Stop chatting: the meter fades to peaceful within 60 seconds.
+6. Pan/zoom while receiving messages: the camera stays put. **View simulated town** exposes the original development simulator; its events never affect the live feed. Switch back using **View live town**. Switching sources resets the camera for that different town. Regenerate still changes the local visual seed; it does not disconnect Twitch or erase the server's recent chat activity.
+7. **Disconnect Chat** stops the shared connection for your channel. **Connect/Reconnect Chat** restarts it. Brief socket/network failures reconnect automatically with backoff; Twitch-directed reconnects transfer the subscription. Closing all tabs does not disconnect until sign-out/session expiry or an explicit disconnect. Sign-out or Twitch revocation closes the connection; reconnect your account and authorize chat again when needed.
+
+Live source is a personal channel preview, not ownership of any other town. Only the signed-in channel can be selected; no browser-supplied broadcaster ID is accepted. Start/stop/authorize controls require the session, same-origin POST and CSRF. Status requires authentication and is never publicly cached. This phase does not expose a public live town directory or administration API.
+
+The server maps Twitch message IDs into the existing `CHAT_MESSAGE` processor and namespaces towns by broadcaster ID. Readable message text is used only transiently for validation/normalization, then replaced with a keyed fingerprint for the existing repeated-text rule. Fingerprints and chatter IDs expire with the 60-second activity window. The browser receives only activity sample ages, channel identity, status, count and last-event time—not chat text, chatter IDs, credentials or tokens. Live delivery IDs are retained for ten minutes (up to 10,000); the live outcome ledger is capped at 1,000 and activity samples at 2,000. Events older than ten minutes are ignored; full dedup capacity drops new events until space expires. The development simulator retains its existing synthetic ledger behavior.
+
+Limitations: sessions, connections and live activity are in memory; restart signs users out and requires reconnecting. At most 100 channel entries are maintained; inactive entries expire after ten minutes without status requests. This is for one long-running Node process, not serverless/Edge or multiple replicas. Moving to a worker or multi-streamer deployment will require shared encrypted auth storage, connection ownership/leases, distributed deduplication, validation scheduling and durable town ownership. Twitch does not replay messages lost during an ordinary disconnect. Browser updates currently use one-second authenticated polling; there is no Socket.IO or public event-writing endpoint. Production still requires HTTPS OAuth configuration.
+
+Protocol references: [EventSub WebSockets](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/), [channel.chat.message authorization](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/#channelchatmessage), and [Create EventSub Subscription](https://dev.twitch.tv/docs/api/reference/#create-eventsub-subscription).
+
+### Diagnose missing chat (Prompt 004C)
+
+With `npm run dev`, server-only JSON records tagged `twitch_chat` trace socket open/welcome, keepalives, subscription creation/readiness, reconnect/revocation and notification processing. These chat diagnostics are disabled outside development. They contain fixed operation/reason labels, safe error categories, numeric HTTP/close codes and boolean checks; they never include chat text, message/subscription/session IDs, credentials, cookies, response bodies, exception text or reconnect URLs.
+
+After a full server restart, reconnect your account and chat. A successful `subscription_create` record has `httpStatus: 202`, with `subscriptionIdPresent`, `enabled`, `chatEvent`, `websocket`, `broadcasterMatches`, `userMatches` and `sessionMatches` all true. This confirms the subscription ID exists, status is enabled, event is `channel.chat.message` v1, transport is WebSocket, both conditions match the signed-in channel and the transport matches the welcomed socket. `subscription_ready / success` follows. Periodic `keepalive / received` records confirm continued socket traffic when chat is idle.
+
+Send a new ordinary message in the exact channel displayed by Living Town, including from the broadcaster's own account. Expect `notification / received`, then `event_processor / accepted`, an increased `receivedMessages`, and a UI update within roughly one second. `activityAwarded: false` means a valid message counted but the existing rapid/repeated-message rules awarded no additional activity. Use different text at least ten seconds apart to earn activity again; activity fades over sixty seconds.
+
+- `notification / rejected` identifies the mapping/transport check that blocked delivery: for example `invalid_message_id`, `channel_mismatch`, `session_mismatch`, or an invalid/stale/future timestamp.
+- `event_processor / ignored` with `duplicate_message` means an already-counted Twitch message was delivered again; `dedup_capacity` means the bounded dedup window is full.
+- `subscription_pending` means a notification arrived before the subscription HTTP response. Up to 100 frames wait briefly in memory and are checked against the confirmed subscription before processing. Failure, timeout or disconnect discards that queue; overflow is logged as `pending_capacity`.
+- `subscription_create / failure` identifies the fixed Helix endpoint and safe HTTP/error category. `socket / failure` or `/ closed` identifies watchdog, connection or close-code failures without exposing sensitive URLs.
+- If keepalives continue with no `notification / received`, no chat notification has reached this process. Confirm the selected channel and that the message actually appears in Twitch chat. Do not infer an event-processor failure from a zero counter alone.
+
+The reported failure was localized to `invalid_message_id`. Twitch message identifiers are opaque strings; the previous URL-safe character whitelist rejected live notifications before simulation processing. Delivery/chat IDs now retain their exact value, accept punctuation, and still reject missing, blank, non-string, control-containing or oversized values (4,096 characters). Deduplication uses the chat message ID, not the delivery ID, so retries cannot double-count. Subscription/session checks and numeric Twitch account checks remain unchanged. The manual retest's server trace confirmed HTTP 202 with all subscription checks passing, four accepted messages and a subsequent keepalive. Only share these structured diagnostic records when troubleshooting, never raw frames or secrets.
+
+## Town controls
 
 - Drag the village to pan; scroll over it to zoom toward the pointer.
 - Use the on-screen plus, minus, fit, and arrow buttons (also suitable for touch).
@@ -92,7 +142,7 @@ npm start
 
 `npm start` serves the production build at http://localhost:3000 (see the HTTPS requirement for production authentication above). Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, simulation, OAuth state/callback failures, session cookies and encryption, expiry, validation/refresh/revocation, and tenant ownership guards. No tests contact Twitch or read local credentials.
 
-Prompt 003 validation passed: lint, TypeScript, all 52 tests (including the original 18) and production build. Browser interactions are not automated, as requested; manually verify both checklists in Chrome. See TASKS.md for the remaining manual checks.
+Prompt 004 validation passed: lint, TypeScript, all 71 tests and production build. Tests include mocked EventSub, authorization, routing, refresh/reconnect and live/simulated separation alongside all existing tests. Browser interactions and real Twitch authorization/chat are manual; no automated browser interaction testing is performed. See TASKS.md for details.
 
 ## Structure
 
@@ -118,6 +168,9 @@ src/components/twitch-account.tsx   Connect/sign-out controls and public profile
 src/app/account/page.tsx            Account screen and safe auth feedback
 src/app/api/auth/                   Login, callback, session and POST logout routes
 src/lib/auth/                      OAuth client, encrypted memory sessions, HTTP handlers, ownership guard and tests
+src/lib/chat/                      EventSub lifecycle, mapping, shared manager, activity projection and tests
+src/app/api/chat/                  Authenticated status and POST authorize/start/stop endpoints
+src/components/chat-connection.tsx Connection panel and one-second activity polling
 src/instrumentation.ts             Server startup validation/background lifecycle
 ```
 
@@ -127,7 +180,7 @@ The spatial layout uses a fixed connected block template. Seeds vary appearance 
 
 Next.js 16 App Router, React 19, strict TypeScript, Tailwind CSS 4, ESLint and PixiJS 8. Exact versions are captured in `package-lock.json`. The application is initialized directly in the repository root.
 
-See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Live EventSub/chat, subscription verification, persistence, realtime services, management portals and the OBS overlay are deferred.
+See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat, subscription verification, persistence, distributed realtime services, management portals and the OBS overlay are deferred.
 
 Authentication references: [Twitch authorization code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow), [required token validation](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refresh](https://dev.twitch.tv/docs/authentication/refresh-tokens/), [revocation](https://dev.twitch.tv/docs/authentication/revoke-tokens/), and [Get Users](https://dev.twitch.tv/docs/api/reference/#get-users).
 

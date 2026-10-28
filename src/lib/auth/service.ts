@@ -1,6 +1,7 @@
 import { isOpaqueToken, randomToken, safeEqual, TokenVault } from "./crypto";
 import { MemoryAuthStore, type StoredSession } from "./store";
-import { AuthError, SESSION_TTL_MS, STATE_TTL_MS, VALIDATION_INTERVAL_MS, type AccountProfile, type AuthConfig, type OAuthTokens, type TwitchGateway, type TokenValidation } from "./types";
+import { AuthError, isAuthError, CHAT_SCOPE, SESSION_TTL_MS, STATE_TTL_MS, VALIDATION_INTERVAL_MS, type AccountProfile, type AuthConfig, type OAuthTokens, type TwitchGateway, type TokenValidation } from "./types";
+import { authDiagnostic, type AuthOperation } from "./diagnostics";
 
 export class AuthService {
   private vault: TokenVault;
@@ -13,17 +14,17 @@ export class AuthService {
   private sessionKey(id: string) { return this.vault.digest("session", id); }
   csrfToken(id: string) { return this.vault.digest("logout-csrf", id); }
 
-  beginLogin(previousBinding?: string) {
+  beginLogin(previousBinding?: string, chatUserId?: string) {
     this.cancelLogin(previousBinding);
     for (const [key, entry] of this.store.states) if (entry.expiresAt <= this.now()) this.store.states.delete(key);
     if (this.store.states.size >= 1000) throw new AuthError("capacity");
     const state = randomToken(), binding = randomToken();
     this.store.states.set(this.vault.digest("state", state), {
-      bindingHash: this.vault.digest("binding", binding), expiresAt: this.now() + STATE_TTL_MS,
+      bindingHash: this.vault.digest("binding", binding), expiresAt: this.now() + STATE_TTL_MS, chatUserId,
     });
     const url = new URL("https://id.twitch.tv/oauth2/authorize");
     url.search = new URLSearchParams({ client_id: this.config.clientId, redirect_uri: this.config.redirectUri,
-      response_type: "code", scope: "", state, force_verify: "true" }).toString();
+      response_type: "code", scope: chatUserId ? CHAT_SCOPE : "", state, force_verify: "true" }).toString();
     return { location: url.href, binding };
   }
   cancelLogin(binding?: string) {
@@ -36,26 +37,37 @@ export class AuthService {
     const entry = this.store.consumeState(this.vault.digest("state", state));
     if (!entry || entry.expiresAt <= this.now() || !isOpaqueToken(binding)
       || !safeEqual(entry.bindingHash, this.vault.digest("binding", binding))) throw new AuthError("state");
+    return entry;
   }
   private checkIdentity(validation: TokenValidation, userId?: string) {
     if (validation.clientId !== this.config.clientId || !/^\d+$/.test(validation.userId)
       || (userId && validation.userId !== userId)) throw new AuthError("invalid_token");
   }
   async finishLogin(input: { state?: string; code?: string; error?: string }, binding?: string, oldSessionId?: string) {
-    this.consumeState(input.state, binding);
-    if (input.error) throw new AuthError("denied");
-    if (!input.code || input.code.length > 2048) throw new AuthError("code");
     let tokens: OAuthTokens | undefined;
+    let operation: AuthOperation = "callback_state";
     try {
+      const attempt = this.consumeState(input.state, binding);
+      operation = "callback_code";
+      if (input.error) throw new AuthError("denied");
+      if (!input.code || input.code.length > 2048) throw new AuthError("code");
+      operation = "token_exchange";
       tokens = await this.twitch.exchange(input.code);
+      operation = "token_validation";
       const validation = await this.twitch.validate(tokens.accessToken);
+      operation = "identity_validation";
       this.checkIdentity(validation);
+      operation = "profile";
       const profile = await this.twitch.profile(tokens.accessToken);
+      operation = "identity_validation";
       this.checkIdentity(validation, profile.twitchUserId);
+      operation = "chat_permission";
+      if (attempt.chatUserId && (attempt.chatUserId !== profile.twitchUserId || !validation.scopes.includes(CHAT_SCOPE))) throw new AuthError("chat_scope");
       // Keep validation work bounded for this single-process prototype.
       if (this.store.sessions.size >= 200) throw new AuthError("capacity");
+      operation = "session_creation";
       const id = randomToken(), key = this.sessionKey(id), now = this.now();
-      this.store.sessions.set(key, { profile, encryptedTokens: this.vault.seal(tokens, key),
+      this.store.sessions.set(key, { profile, scopes: [...validation.scopes], encryptedTokens: this.vault.seal(tokens, key),
         tokenFingerprint: this.vault.digest("access-token", tokens.accessToken),
         expiresAt: now + SESSION_TTL_MS, tokenExpiresAt: now + validation.expiresIn * 1000, validatedAt: now });
       // Rotate the current browser's session without retaining a fixation target.
@@ -65,13 +77,16 @@ export class AuthService {
         this.store.sessions.delete(oldKey);
         if (old && old.tokenFingerprint !== this.vault.digest("access-token", tokens.accessToken)) this.queueRevocation(oldKey, old);
       }
-      return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS };
+      return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS, chatRequested: !!attempt.chatUserId };
     } catch (error) {
+      authDiagnostic(operation, "failure", error);
       if (tokens) {
-        const key = randomToken();
-        this.store.revocations.set(key, { key, encryptedTokens: this.vault.seal(tokens, key), expiresAt: this.now() + 60 * 60 * 1000 });
+        try {
+          const key = randomToken();
+          this.store.revocations.set(key, { key, encryptedTokens: this.vault.seal(tokens, key), expiresAt: this.now() + 60 * 60 * 1000 });
+        } catch (cleanupError) { authDiagnostic("token_cleanup", "failure", cleanupError); }
       }
-      throw error instanceof AuthError ? error : new AuthError("unavailable");
+      throw isAuthError(error) ? error : new AuthError("unavailable");
     }
   }
   private queueRevocation(key: string, session: StoredSession) {
@@ -108,7 +123,7 @@ export class AuthService {
       catch (error) {
         // An unexpected revocation must end the session, not silently reconnect it.
         // Refresh only an expired token, reactively after Twitch returns invalid.
-        if (!(error instanceof AuthError) || error.code !== "invalid_token" || session.tokenExpiresAt > this.now()) throw error;
+        if (!isAuthError(error) || error.code !== "invalid_token" || session.tokenExpiresAt > this.now()) throw error;
         refreshed = await this.twitch.refresh(tokens.refreshToken);
         tokens = refreshed;
         validation = await this.twitch.validate(tokens.accessToken);
@@ -122,11 +137,12 @@ export class AuthService {
       session.tokenFingerprint = this.vault.digest("access-token", tokens.accessToken);
       session.tokenExpiresAt = this.now() + validation.expiresIn * 1000;
       session.validatedAt = this.now();
+      session.scopes = [...validation.scopes];
       return { ...session.profile };
     } catch (error) {
       this.invalidateToken(session.tokenFingerprint);
       if (refreshed) this.queueRevocation(key, { ...session, encryptedTokens: this.vault.seal(refreshed, key) });
-      throw error instanceof AuthError ? error : new AuthError("invalid_token");
+      throw isAuthError(error) ? error : new AuthError("invalid_token");
     }
   }
   async signOut(id?: string, csrf?: string) {
@@ -137,6 +153,30 @@ export class AuthService {
     this.invalidateToken(session.tokenFingerprint); // Includes any sessions sharing this token.
     await this.flushRevocations();
   }
+  /** Server-only capability: never serialize its key or decrypted credentials. */
+  async chatSession(id: string | undefined, forceValidation = false) {
+    const profile = await this.getProfile(id, forceValidation);
+    if (!profile || !id) throw new AuthError("unauthorized");
+    const key = this.sessionKey(id), session = this.store.sessions.get(key);
+    if (!session) throw new AuthError("unauthorized");
+    return { key, profile, authorized: session.scopes?.includes(CHAT_SCOPE) ?? false };
+  }
+  chatSessionActive(key: string) {
+    const session = this.store.sessions.get(key);
+    return !!session && session.expiresAt > this.now() && !!session.scopes?.includes(CHAT_SCOPE);
+  }
+  async chatCredentials(key: string, forceValidation = false) {
+    const profile = await this.profileByKey(key, forceValidation);
+    if (!profile) throw new AuthError("unauthorized");
+    const session = this.store.sessions.get(key);
+    if (!session) throw new AuthError("unauthorized");
+    if (!session.scopes?.includes(CHAT_SCOPE)) throw new AuthError("chat_scope");
+    return { profile, accessToken: this.vault.open(session.encryptedTokens, key).accessToken };
+  }
+  revokeChat(key: string) {
+    const session = this.store.sessions.get(key);
+    if (session) this.invalidateToken(session.tokenFingerprint);
+  }
   private async flushRevocations() {
     const pending = [...this.store.revocations].slice(0, 50);
     for (let offset = 0; offset < pending.length; offset += 10) {
@@ -145,7 +185,7 @@ export class AuthService {
         await this.twitch.revoke(this.vault.open(entry.encryptedTokens, entry.key).accessToken);
         if (this.store.revocations.get(id) === entry) this.store.revocations.delete(id);
       } catch (error) {
-        if ((error instanceof AuthError && error.code === "invalid_token") || entry.expiresAt <= this.now()) this.store.revocations.delete(id);
+        if ((isAuthError(error) && error.code === "invalid_token") || entry.expiresAt <= this.now()) this.store.revocations.delete(id);
         // Fail-closed locally; encrypted best-effort revocations retry on maintenance.
       }
       }));
