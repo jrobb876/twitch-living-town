@@ -17,6 +17,7 @@ export type Building = {
 } | {
   id: string; kind: "house"; plotId: string; position: WorldPosition;
   ownerTwitchUserId: string | null; appearance: HouseAppearance;
+  property?: { size: "small" | "medium" | "large"; prestige: number; status: "unclaimed" | "verified_subscriber" | "legacy"; customization: Record<string, string | number | boolean> };
 };
 export type HouseBuilding = Extract<Building, { kind: "house" }>;
 export type Resident = TwitchIdentity & {
@@ -38,14 +39,15 @@ export type EventOutcome = {
 export type GiftGroup = {
   id: string; gifter: TwitchIdentity; announcedCount: number; recipientIds: string[];
 };
-/** JSON-safe durable snapshot; persistence is currently in memory only. */
+/** JSON-safe durable snapshot; runtime movement/activity is stored separately. */
 export type TownWorld = {
   schemaVersion: 1; generatorVersion: 1;
   id: string; streamerTwitchUserId: string; name: string; seed: number;
   layout: Omit<Town, "houses" | "expansion">;
   districts: { id: string; name: string; kind: "civic" | "residential"; plotIds: string[] }[];
   plots: ResidentialPlot[]; buildings: Building[]; residents: Resident[];
-  mayor: { id: string; name: string; species: "cat"; headquartersId: string };
+  mayor: { id: string; name: string; species: "cat"; headquartersId: string;
+    appearance?: { preset: "default" }; personality?: { curiosity: number; energy: number } };
   processedEvents: EventOutcome[]; giftGroups: GiftGroup[];
 };
 export type TownEffect = {

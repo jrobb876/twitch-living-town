@@ -1,5 +1,23 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 005 — Persistent towns
+
+- [x] Inspect existing models, processor, housing, auth and live/demo integration; preserve the Overview.
+- [x] Add typed Supabase repository, validated server configuration, structured errors and reused SDK connection.
+- [x] Add reviewed migration for users, towns, Mayor, districts/plots, houses, residents and durable event receipts.
+- [x] Enable RLS; revoke browser access; grant only intended server RPCs; authorize session/CSRF/owner on protected HTTP writes.
+- [x] Add deliberate first-time town creation, database reload, Mayor name save and safe public projection.
+- [x] Persist v1 layouts without regeneration; prepare resident/property storage through the existing processor and verified server adapter boundary.
+- [x] Transactional event dedup, revision retry, concurrent housing uniqueness and rollback; stable house/plot identity.
+- [x] Keep chat activity/movement and simulator out of persistent writes; clearly label unsaved demos and storage errors.
+- [x] Add actual PostgreSQL migration, concurrency, authorization, reload, privacy and failure tests using disposable PGlite.
+- [x] Document environment setup, manual migration, connectivity checks, security and production limits.
+- [x] Final lint, TypeScript, all 96 tests (12 persistence cases) and production build passed. PostgreSQL migration/constraints were exercised offline; no live credentials were used by tests.
+- [ ] User reviews/applies `supabase/migrations/202610280001_persistent_towns.sql` to the intended project and sets the two server variables.
+- [ ] Manual Chrome/Supabase verification: create/reload after restart, second account, Mayor save, live chat, camera and isolated simulator.
+
+New scopes, verified subscription ingestion/customization UI, auth persistence and distributed sockets remain deferred. No live migration, browser automation, commit or push is performed by this implementation.
+
 ## Completed: foundation
 
 - [x] Next.js/TypeScript/Tailwind/ESLint/PixiJS setup in repository root.
@@ -42,9 +60,9 @@
 1. Exercise the simulator in-browser and tune effect visibility and Mayor priorities.
 2. Add canvas lifecycle/camera retention integration tests and broader mobile/touch checks.
 3. Implement incremental districts and housing waitlist fulfillment.
-4. Design transactional PostgreSQL tables, durable tenant ownership, shared auth storage, validation workers, event retention and migrations.
+4. Add shared auth storage, validation workers, durable event retention and production rollout controls; transactional town storage and migrations are implemented in Prompt 005.
 5. Define stable gift correlation and payload validation before adding live event types beyond chat.
-6. Add customization controls and public multi-town routing once persistence and ownership provisioning are ready.
+6. Add public town browsing and subscriber customization controls after independently verified subscription entitlement.
 
 ## Completed: secure Twitch authentication (Prompt 003)
 
@@ -81,7 +99,7 @@
 
 ## Deferred
 
-Real follower/subscription/gift/raid/Bits/Channel Points events, Supabase/PostgreSQL, Fastify, Socket.IO, OBS, subscriber entitlement verification, customization editor, detailed isometric renderer, production art/audio and complex Mayor AI. All town changes, live activity and auth sessions remain in memory. No automatic commits or pushes.
+Real follower/subscription/gift/raid/Bits/Channel Points events, Fastify, Socket.IO, OBS, subscriber entitlement verification, customization editor, detailed isometric renderer, production art/audio and complex Mayor AI. Prompt 005 persists deliberate towns in Supabase; demo activity and auth sessions remain in memory. No automatic commits or pushes.
 
 ## Completed: EventSub chat (Prompt 004)
 
@@ -121,6 +139,6 @@ Real follower/subscription/gift/raid/Bits/Channel Points events, Supabase/Postgr
 ## Chat limitations and next work
 
 - Single continuously running Node process only. Restart clears sessions/connections/activity; full restart required after auth/service implementation upgrades.
-- One-second polling; no public live-town viewer, durable stream-owner provisioning, shared storage or multi-replica worker leases.
+- One-second activity polling; no public live-activity viewer, shared auth storage or multi-replica worker leases. Durable town ownership is implemented in Prompt 005.
 - Maximum 100 channel entries; bounded live dedup/outcome/activity retention. No replay of messages lost during ordinary reconnects.
 - Live scope covers chat only. Real event authorization, durable dedup, other channel events and subscription verification remain separate future milestones.

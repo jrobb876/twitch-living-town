@@ -1,6 +1,6 @@
 import type { TownWorld } from "./types";
 
-/** Replace this boundary with transactional PostgreSQL persistence later. */
+/** Synchronous demo/test repository only. Durable server towns use lib/persistence. */
 export interface TownRepository {
   load(townId: string): TownWorld | null;
   save(world: TownWorld): void;

@@ -1,12 +1,12 @@
 import { calculateActivity } from "../simulation/activity";
-import type { TownSession } from "../simulation/types";
+import type { TownSession, TownWorld } from "../simulation/types";
 import { createSession, createWorld } from "../simulation/world";
 import type { ChatSnapshot } from "./types";
 
-export function createLiveView(snapshot: ChatSnapshot, seed: number, name: string, mayorName: string, now: number) {
-  const state = createSession(createWorld({ id: snapshot.townId, streamerTwitchUserId: snapshot.channel.twitchUserId, seed, name, mayorName }), now);
+export function createLiveView(snapshot: ChatSnapshot, seed: number, name: string, mayorName: string, now: number, savedWorld?: TownWorld) {
+  const state = createSession(savedWorld ?? createWorld({ id: snapshot.townId, streamerTwitchUserId: snapshot.channel.twitchUserId, seed, name, mayorName }), now);
   // Reuse existing ambient actor graphics/behavior; these are scenery, not Twitch resident records.
-  state.runtime.residentActors = state.world.layout.navigation.slice(0, 4).map((node, index) => ({ residentId: `ambient-${index}`,
+  if (!state.runtime.residentActors.length) state.runtime.residentActors = state.world.layout.navigation.slice(0, 4).map((node, index) => ({ residentId: `ambient-${index}`,
     actor: { position: { x: node.x, y: node.y }, nodeId: node.id, targetNodeId: null, previousNodeId: null, restUntil: now + index * 700, steps: index } }));
   return state;
 }

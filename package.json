@@ -8,16 +8,19 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx --test src/lib/town/generate.test.ts src/lib/simulation/simulation.test.ts src/lib/auth/*.test.ts src/lib/chat/*.test.ts"
+    "test": "tsx --test src/lib/town/generate.test.ts src/lib/simulation/simulation.test.ts src/lib/auth/*.test.ts src/lib/chat/*.test.ts src/lib/persistence/*.test.ts"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
     "next": "16.4.3",
     "pixi.js": "^8.22.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^24",
     "@types/react": "^19",

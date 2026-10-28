@@ -6,7 +6,7 @@ A persistent, procedurally generated cozy town representing a Twitch streamer's 
 
 The current visual style remains the **Town Overview**. The deterministic generator, 12 original homes, plaza, Town Hall, landscaping, camera controls and regeneration are preserved. A detailed isometric Living Town renderer is deferred. Town artwork remains programmatic; the account UI can show the authenticated Twitch profile picture.
 
-The simulation milestone added renderer-independent ownership, activity, events and a development simulator. Secure Twitch identity connects streamers/viewers, and the current milestone adds optional real chat activity through EventSub WebSockets. The app uses Next.js App Router, React, TypeScript, Tailwind, ESLint and PixiJS v8.
+The simulation milestone added renderer-independent ownership, activity, events and a development simulator. Secure Twitch identity connects streamers/viewers; optional real chat activity uses EventSub WebSockets. Prompt 005 adds deliberate per-streamer town creation and durable worlds in Supabase PostgreSQL. The app uses Next.js App Router, React, TypeScript, Tailwind, ESLint and PixiJS v8.
 
 Chat delivery diagnostics distinguish socket connection, confirmed subscription readiness and accepted internal events. Message IDs are opaque strings used unchanged for deduplication; broadcaster messages follow the same rules as other chat. A bounded, temporary queue handles notifications received before the subscription HTTP response. Development-only structured logs expose safe rejection reasons without chat content or credentials. The source selector alone does not indicate subscription readiness. See README for manual verification.
 
@@ -22,8 +22,9 @@ React in-memory session → TownCanvas.update(session)
                          ↓
 overviewOf(TownWorld) → original overview graphics + actors/effects
 
-TownRepository interface → InMemoryTownRepository (reference implementation)
-                         → PostgreSQL/Supabase implementation later
+InMemoryTownRepository → isolated demo/test state
+PersistentTownRepository → Supabase RPC → PostgreSQL transaction
+                         → canonical TownWorld + relational constraint projections
 ```
 
 `src/lib/simulation/` imports no React, PixiJS or browser globals. Time and event IDs come from the caller. Generation and behavior choices are deterministic. Tests exercise domain behavior without WebGL.
@@ -88,9 +89,9 @@ Sessions use opaque 256-bit IDs, eight-hour absolute expiry, host-only HttpOnly/
 
 Login validates Twitch client ID and stable numeric user ID against Get Users. Startup re-entry validates retained sessions; a process restart has no retained sessions. A minute timer checks sessions whose validation is at least 30 minutes old, even without browser traffic. Stale reads also validate, and owner guards force validation. Refresh is reactive after known token expiry and an invalid-token response; unexpected revocation or failed validation removes affected sessions. Concurrent reads share the same session validation operation. Sign-out requires same-origin form POST and session-bound CSRF, removes sessions locally first, then revokes access tokens; failed revocations retry for at most an hour in memory.
 
-The public town stays accessible signed out. The real account does not replace simulated residents, assign a town, or prove an active subscription. Ownership is checked against `TownWorld.streamerTwitchUserId` loaded from a trusted server repository for each town. No viewer can gain administration through a display name, profile type or client-supplied ownership field. There are no administrative mutation endpoints yet; all future such endpoints must use the guard and enforce mutation CSRF.
+The public demo stays accessible signed out. Login does not replace simulated residents, automatically assign a town, or prove an active subscription. Ownership is checked against `TownWorld.streamerTwitchUserId` loaded from the database. Deliberate town creation and Mayor updates require session validation and mutation CSRF. No viewer gains administration through display name, profile type or client-supplied ownership.
 
-This phase supports one continuously running Node process, capped at 200 sessions/1,000 pending logins. Restart loses auth and revocation records. Shared atomic storage, distributed refresh coordination, scheduled validation, durable ownership and subscription verification are prerequisites for multi-process/serverless deployment. No database is introduced here. Production authentication requires HTTPS and deployment log redaction for OAuth callbacks.
+Authentication still supports one continuously running Node process, capped at 200 sessions/1,000 pending logins. Restart loses auth and revocation records but preserves database worlds. Shared auth storage, distributed refresh coordination and scheduled validation remain prerequisites for multi-process/serverless deployment. Production authentication requires HTTPS and deployment log redaction for OAuth callbacks.
 
 ## Real chat integration (Prompt 004)
 
@@ -111,14 +112,20 @@ Channel identity maps to `twitch:<broadcaster ID>`; event identity uses the Twit
 
 Live and simulated views use separate TownSession values and share the existing renderer implementation. Four transient ambient actors reuse existing graphics/behavior without creating resident records. Live summaries update activity only, preserving layout and camera during chat. Switching town source remounts the canvas; regeneration stays local. A label identifies LIVE SOURCE versus SIMULATED even during reconnection, alongside the actual EventSub connection status and last-event time.
 
-No extra worker is needed for the supported single, continuously running Node process. The service boundary isolates the EventSub lifecycle for a later worker/shared-store deployment. At most 100 channel entries are held; inactive entries expire after ten minutes without status reads. Process restart clears sessions/live activity; ordinary network outages can lose events because Twitch does not replay them. Serverless, multiple replicas, public live-town viewing, durable ownership and distributed delivery remain future work.
+No extra worker is needed for the supported single, continuously running Node process. The service boundary isolates the EventSub lifecycle for a later worker/shared-store deployment. At most 100 channel entries are held; inactive entries expire after ten minutes without status reads. Process restart clears sessions/live activity; ordinary network outages can lose events because Twitch does not replay them. Serverless, multiple replicas, public live-activity viewing and distributed delivery remain future work. Durable town ownership is now stored in Supabase.
 
 ## Persistence and future product
 
-The UI holds separate live-preview and demo TownSession values in React memory. The server's live chat feed uses the same domain model to process activity. TownRepository and its defensive-copy implementation demonstrate multi-town load/save; there is no disk, localStorage or database persistence. Reload resets the local demo; recent live activity can be fetched again while the server session remains active.
+The UI holds separate live/persistent and demo TownSession values. A persistent view reconstructs runtime from the database's canonical TownWorld; it never regenerates the saved layout. The server's live chat feed uses the same processor for temporary activity and never writes chat content or activity ticks to the database. Reload resets only the local demo and transient runtime; saved towns survive application restarts.
 
-Before persistence: implement transactions and unique constraints for event IDs, owners and gift recipients, schema migrations, event retention and authoritative clocks. The demo retains a complete delivery ledger in memory for retry correctness and is not designed for unlimited ingestion.
+Versioned SQL in `supabase/migrations/202610280001_persistent_towns.sql` creates users, towns, Mayor settings, districts, plots, houses, residents and processed durable events. The world snapshot is canonical and relational projections update atomically through server-only RPCs. One town per owner, composite house identities, unique owner/plot/event constraints and revision locking protect concurrent changes. Verified-event retries rerun the existing processor on the latest snapshot; no second simulation exists. Event/gift retention and large-world scaling remain follow-up work.
 
-Planned surfaces: public town directory, streamer dashboard, subscriber portal, realtime renderer, OBS overlay, live Twitch EventSub/Helix features beyond identity, and PostgreSQL/Supabase with later Fastify/Socket.IO services.
+Authenticated GET `/api/town` resolves only the signed-in user's town. POST creates one deliberately from bounded names and a server-generated UUID/seed; PATCH saves Mayor settings with a revision guard. Mutations force session validation and require same-origin CSRF protection. The browser cannot supply an owner ID or complete world. Server methods prepare stable house updates and verified resident/subscription event application, with no browser ingestion/customization endpoint and no new Twitch scopes/events. True follower/subscriber evidence is stored with timestamps; missing evidence remains unknown.
 
-Twitch OAuth, Helix identity and EventSub chat are implemented. Real follower/subscription/gift/raid/Bits/Channel Points events, database persistence, Socket.IO, OBS, customization editor, subscription verification, arbitrary expansion and an isometric renderer remain deferred. Customization currently means an asset-independent data structure. Richer Mayor naps, inspections and personality remain future work.
+RLS is enabled on every new table, browser privileges are revoked, and only the server role can execute intended RPC entry points. Twitch sessions remain separate from Supabase Auth. The server secret bypasses RLS, so Next.js authorizes every protected operation. Public GET `/api/towns/[townId]` selects visual data and excludes ownership, residents and contribution details. Configuration/database failures are explicit and never turn a failed production save into an in-memory success. The labeled demo has no persistence path.
+
+World schema/generator versions are pinned at 1. Existing coordinates, seed, house/plot identity and assigned ownership cannot change through normal saves. Unknown versions fail closed and require a reviewed migration. Mayor appearance/personality and house size/prestige/customization are stored as bounded settings; this milestone adds no new visual behavior, economy or subscriber UI. See `supabase/README.md` for setup and production limits.
+
+Planned surfaces: public town directory, full streamer dashboard, subscriber portal, OBS overlay, live Twitch EventSub/Helix features beyond chat, and later Fastify/Socket.IO services.
+
+Twitch OAuth, Helix identity, EventSub chat and Supabase town persistence are implemented. Real follower/subscription/gift/raid/Bits/Channel Points events, Socket.IO, OBS, customization editor, subscription verification, arbitrary expansion and an isometric renderer remain deferred. Customization currently means stored, asset-independent settings. Richer Mayor naps, inspections and personality behavior remain future work.
