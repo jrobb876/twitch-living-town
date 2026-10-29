@@ -7,6 +7,7 @@ export type DurableEvent = Exclude<TownEvent, { type: "CHAT_MESSAGE" | "INCOMING
 export type EventReceipt = { id: string; type: DurableEvent["type"]; source: "twitch_verified"; occurredAt: number; outcome: EventOutcome };
 export type CommitResult = { status: "saved" | "conflict" | "duplicate"; town: StoredTown; outcome?: EventOutcome };
 export interface PersistentTownRepository {
+  ownedTownIds(userId: string): Promise<string[]>;
   findByOwner(ownerId: string): Promise<StoredTown | null>;
   load(townId: string): Promise<StoredTown | null>;
   create(profile: AccountProfile, world: TownWorld): Promise<StoredTown>;

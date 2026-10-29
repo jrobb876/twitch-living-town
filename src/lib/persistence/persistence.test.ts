@@ -25,12 +25,15 @@ import { createHousingHandlers } from "../subscribers/http";
 import { TwitchSubscriptions } from "../subscribers/twitch";
 import { HousingError, type VerifiedSubscriber } from "../subscribers/types";
 import { subscriber, housingNotification } from "../subscribers/test-fixtures";
+import { createHouseHandlers } from "../houses/http";
+import { colors, exteriorOf } from "../houses/customization";
 
 const db = new PGlite();
 before(async () => {
   await db.exec("create role anon; create role authenticated; create role service_role;");
   await db.exec(await readFile("supabase/migrations/202610280001_persistent_towns.sql", "utf8"));
   await db.exec(await readFile("supabase/migrations/202610280002_subscriber_housing.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/202610280003_house_portal.sql", "utf8"));
 });
 after(async () => { await db.close(); });
 // Actual PostgreSQL transactions/constraints; no network, env credentials or live DB.
@@ -46,7 +49,7 @@ const repository = new SupabaseTownRepository(rpc), service = new TownPersistenc
 let nextUser = 10000;
 const profile = () => ({ twitchUserId: String(nextUser++), displayName: "Synthetic streamer", login: "synthetic", profileImageUrl: null });
 const create = async () => { const owner = profile(); return { owner, town: await service.create(owner, { name: "Test town", mayorName: "Mochi", seed: 42 }) }; };
-const event = (townId: string, user = profile(), id = randomUUID()): DurableEvent => ({ type: "NEW_SUBSCRIBER", id, townId, occurredAt: NOW, user: { twitchUserId: user.twitchUserId, displayName: user.displayName } });
+const event = (townId: string, user = profile(), id = randomUUID()): Extract<DurableEvent, { type: "NEW_SUBSCRIBER" }> => ({ type: "NEW_SUBSCRIBER", id, townId, occurredAt: NOW, user: { twitchUserId: user.twitchUserId, displayName: user.displayName } });
 const code = (expected: string) => (error: unknown) => error instanceof PersistenceError && error.code === expected;
 
 test("town creation is deliberate, idempotent, independently owned, and reloads the saved world", async () => {
@@ -389,4 +392,101 @@ test("failed durable delivery retries transactionally, and failed sync never cla
   assert.equal((await h.housing.status(h.owner)).deliveryError, null);
   h.housing.enqueue(h.owner, h.grant.key, input); await h.drain();
   assert.equal((await persistence.mine(h.owner))?.world.residents.length, 1);
+});
+
+async function portalFixture() {
+  const first = await create(), second = await create(), member = profile();
+  for (const { town } of [first, second]) {
+    await service.applyVerifiedEvent({ source: "twitch_verified", event: { ...event(town.world.id, member), type: "NEW_SUBSCRIBER",
+      subscription: { active: true, tier: "2000", isGift: false, verifiedAt: NOW, source: "sync" } } });
+  }
+  return { first, second, member, properties: await service.listOwnProperties(member) };
+}
+test("portal finds only the authenticated user's properties across multiple towns, including retained legacy homes", async () => {
+  const f = await portalFixture(); assert.equal(f.properties.length, 2); assert.ok(f.properties.every((p) => p.editable));
+  assert.deepEqual(await service.listOwnProperties(profile()), []);
+  const p = f.properties.find((item) => item.townId === f.first.town.world.id)!;
+  await assert.rejects(service.ownProperty(profile(), p.townId, p.house.id), code("forbidden"));
+  await service.applyVerifiedEvent({ source: "twitch_verified", event: { type: "SUBSCRIPTION_ENDED", id: randomUUID(), townId: p.townId, occurredAt: NOW + 1, user: { twitchUserId: f.member.twitchUserId, displayName: f.member.displayName },
+    subscription: { active: false, tier: "2000", isGift: false, verifiedAt: NOW + 1, source: "eventsub" } } });
+  const next = await service.listOwnProperties(f.member); assert.equal(next.length, 2);
+  assert.equal(next.find((item) => item.townId === p.townId)?.editable, false);
+  await assert.rejects(service.saveOwnExterior(f.member, p.townId, p.house.id, (await service.mine(f.first.owner))!.revision, exteriorOf(p.house), async () => { assert.fail("Legacy house must be rejected before verification"); }), code("forbidden"));
+});
+test("portal save persists presets and preserves protected metadata, layout and another town", async () => {
+  const f = await portalFixture(), p = f.properties.find((item) => item.townId === f.first.town.world.id)!;
+  let town = (await service.mine(f.first.owner))!;
+  const home = housesIn(town.world).find((item) => item.id === p.house.id)!;
+  home.property!.size = "medium"; home.property!.prestige = 3; home.property!.customization.keepsake = "Retain me";
+  town = (await repository.commit(f.first.owner.twitchUserId, town)).town;
+  const original = structuredClone(housesIn(town.world).find((item) => item.id === home.id)!);
+  const other = await service.mine(f.second.owner); let verified = 0;
+  const draft = { ...exteriorOf(original), houseName: "Mochi Cottage", roof: "rose" as const, wall: "cream" as const, door: "sage" as const, garden: "stones" as const, accent: "birdhouse" as const };
+  const result = await service.saveOwnExterior(f.member, p.townId, home.id, town.revision, draft, async (owner, member) => {
+    verified++; assert.equal(owner, f.first.owner.twitchUserId); assert.equal(member, f.member.twitchUserId);
+  });
+  assert.equal(verified, 1); assert.equal(result.house.appearance.roofColor, colors.rose); assert.equal(result.house.appearance.wallColor, colors.cream);
+  assert.equal(result.house.property?.size, "medium"); assert.equal(result.house.property?.prestige, 3);
+  assert.equal(result.house.property?.customization.keepsake, "Retain me"); assert.equal(result.house.property?.customization.houseName, "Mochi Cottage");
+  for (const key of ["id", "plotId", "ownerTwitchUserId", "position"] as const) assert.deepEqual(result.house[key], original[key]);
+  const fresh = new TownPersistenceService(new SupabaseTownRepository(rpc));
+  assert.deepEqual(await fresh.ownProperty(f.member, p.townId, home.id), result);
+  assert.deepEqual((await service.mine(f.first.owner))!.world.layout, town.world.layout); assert.deepEqual(await service.mine(f.second.owner), other);
+  const publicView = await service.publicTown(p.townId);
+  assert.ok(JSON.stringify(publicView).includes("Mochi Cottage")); assert.ok(!JSON.stringify(publicView).includes("Retain me"));
+  await assert.rejects(service.saveOwnExterior(f.member, p.townId, home.id, town.revision, draft, async () => {}), code("conflict"));
+});
+test("portal denies unauthorized, unknown entitlement, forbidden fields and failed verification without writing", async () => {
+  const f = await portalFixture(), p = f.properties[0], before = await service.ownProperty(f.member, p.townId, p.house.id);
+  const draft = exteriorOf(p.house); let called = false;
+  const verify = async () => { called = true; };
+  await assert.rejects(service.saveOwnExterior(profile(), p.townId, p.house.id, p.revision, draft, verify), code("forbidden"));
+  for (const field of ["ownerTwitchUserId", "plotId", "prestige", "size", "appearance"]) {
+    await assert.rejects(service.saveOwnExterior(f.member, p.townId, p.house.id, p.revision, { ...draft, [field]: "forged" }, verify), code("invalid_input"));
+  }
+  assert.equal(called, false);
+  for (const failure of ["forbidden", "unavailable"] as const) await assert.rejects(service.saveOwnExterior(f.member, p.townId, p.house.id, p.revision, draft, async () => { throw new PersistenceError(failure); }), code(failure));
+  assert.deepEqual(await service.ownProperty(f.member, p.townId, p.house.id), before);
+  const old = await create(), unknown = profile();
+  await service.applyVerifiedEvent({ source: "twitch_verified", event: event(old.town.world.id, unknown) });
+  const oldProperty = (await service.listOwnProperties(unknown))[0]; assert.equal(oldProperty.editable, false);
+});
+test("a subscription ending during verification wins over a conflicting customization save", async () => {
+  const f = await portalFixture(), p = f.properties[0];
+  await assert.rejects(service.saveOwnExterior(f.member, p.townId, p.house.id, p.revision, { ...exteriorOf(p.house), houseName: "Should not save" }, async () => {
+    await service.applyVerifiedEvent({ source: "twitch_verified", event: { type: "SUBSCRIPTION_ENDED", id: randomUUID(), townId: p.townId, occurredAt: NOW + 1, user: { twitchUserId: f.member.twitchUserId, displayName: f.member.displayName },
+      subscription: { active: false, tier: "2000", isGift: false, verifiedAt: NOW + 1, source: "eventsub" } } });
+  }), code("conflict"));
+  const after = await service.ownProperty(f.member, p.townId, p.house.id); assert.equal(after.editable, false);
+  assert.notEqual(after.house.property?.customization.houseName, "Should not save");
+});
+test("house HTTP resolves session identity, rejects forged bodies and CSRF, and keeps demo writes out", async () => {
+  const f = await portalFixture(), auth = fixture(); auth.twitch.identity = f.member; auth.twitch.validation.userId = f.member.twitchUserId;
+  const login = await auth.login(), p = f.properties[0]; let checks = 0;
+  const handlers = createHouseHandlers(() => auth.service, () => service, async () => { checks++; }, false);
+  const request = (method = "GET", body?: unknown, headers: Record<string,string> = {}) => new NextRequest("http://localhost:3000/api/my-houses?userId=999", { method,
+    headers: { cookie: `${cookieNames(false).session}=${login.id}`, origin: "http://localhost:3000", "content-type": "application/json", "x-csrf-token": auth.service.csrfToken(login.id), ...headers },
+    ...(body ? { body: JSON.stringify(body) } : {}) });
+  const target = { townId: p.townId, houseId: p.house.id }, body = { revision: p.revision, exterior: { ...exteriorOf(p.house), houseName: "HTTP Cottage" } };
+  assert.equal((await handlers.list(request("GET", undefined, { cookie: "" }))).status, 401);
+  assert.equal((await (await handlers.list(request())).json()).houses.length, 2);
+  assert.equal((await handlers.save(request("PATCH", body, { "x-csrf-token": "bad" }), target)).status, 403);
+  assert.equal((await handlers.save(request("PATCH", body, { origin: "https://evil.example" }), target)).status, 403);
+  assert.equal((await handlers.save(request("PATCH", { ...body, userId: f.member.twitchUserId }), target)).status, 400);
+  assert.equal((await handlers.save(request("PATCH", body), { ...target, townId: "demo-house-editor" })).status, 400);
+  assert.equal(checks, 0);
+  const saved = await handlers.save(request("PATCH", body), target); assert.equal(saved.status, 200); assert.equal(checks, 1);
+  assert.match(saved.headers.get("cache-control")!, /no-store/);
+  assert.equal((await (await handlers.get(request(), target)).json()).property.house.property.customization.houseName, "HTTP Cottage");
+});
+test("migration 003 grants only the server role the indexed multi-town lookup", async () => {
+  const f = await portalFixture();
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    await db.exec(`set role ${role}`);
+    try {
+      const query = () => db.query<{ ids: string[] }>("select public.living_town_owned_towns($1) as ids", [f.member.twitchUserId]);
+      if (role === "service_role") assert.equal((await query()).rows[0].ids.length, 2);
+      else await assert.rejects(query(), (e: unknown) => (e as { code: string }).code === "42501");
+    } finally { await db.exec("reset role"); }
+  }
 });

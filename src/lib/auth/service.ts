@@ -192,6 +192,15 @@ export class AuthService {
     const session = this.store.sessions.get(key);
     if (session) this.invalidateToken(session.tokenFingerprint);
   }
+  /** Trusted server capability for an owner's current subscriber verification. Never serialize. */
+  async subscriptionCredentialsFor(broadcasterId: string) {
+    for (const [key, entry] of this.store.sessions) {
+      if (entry.profile.twitchUserId !== broadcasterId || !this.scopedSessionActive(key, [SUBSCRIPTION_SCOPE])) continue;
+      const credentials = await this.scopedCredentials(key, [SUBSCRIPTION_SCOPE], true);
+      if (credentials.profile.twitchUserId === broadcasterId) return { ...credentials, key };
+    }
+    throw new AuthError("subscription_scope");
+  }
   private async flushRevocations() {
     const pending = [...this.store.revocations].slice(0, 50);
     for (let offset = 0; offset < pending.length; offset += 10) {

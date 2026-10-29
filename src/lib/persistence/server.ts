@@ -7,6 +7,7 @@ import type { Json } from "./types";
 
 type Database = { public: { Tables: Record<string, never>; Views: Record<string, never>; Enums: Record<string, never>; CompositeTypes: Record<string, never>;
   Functions: {
+    living_town_owned_towns: { Args: { p_user: Json }; Returns: Json };
     living_town_load: { Args: { p_id?: Json; p_owner?: Json }; Returns: Json };
     living_town_create: { Args: { p_profile: Json; p_world: Json }; Returns: Json };
     living_town_commit: { Args: { p_owner: Json; p_world: Json; p_revision: Json; p_event?: Json }; Returns: Json };

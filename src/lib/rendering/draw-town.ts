@@ -11,7 +11,7 @@ function flower(g: Graphics, x: number, y: number, color: number) {
   g.circle(x - 3, y, 3).circle(x + 3, y, 3).circle(x, y - 3, 3).fill(color);
   g.circle(x, y, 2).fill(0xffedb4);
 }
-function houseView(house: House) {
+export function houseView(house: House) {
   const c = new Container(); c.position.set(house.x, house.y); c.zIndex = house.y + 50;
   const g = new Graphics(); c.addChild(g);
   g.roundRect(-103, -58, 206, 150, 20).fill(0xb8d49e);
@@ -19,8 +19,8 @@ function houseView(house: House) {
   g.roundRect(-8, 48, 16, 45, 3).fill(palette.road);
   // Fence rails and posts leave a front gate at the path.
   for (const side of [-1, 1]) {
-    g.roundRect(side < 0 ? -96 : 28, 70, 68, 5, 2).fill(0xf1e5c8);
-    for (let i = 0; i < 5; i++) g.roundRect((side < 0 ? -96 : 28) + i * 16, 62, 5, 20, 2).fill(0xfff0d5);
+    g.roundRect(side < 0 ? -96 : 28, 70, 68, 5, 2).fill(house.fence ?? 0xf1e5c8);
+    for (let i = 0; i < 5; i++) g.roundRect((side < 0 ? -96 : 28) + i * 16, 62, 5, 20, 2).fill(house.fence ?? 0xfff0d5);
   }
   g.ellipse(5, 45, 73, 17).fill({ color: 0x58784d, alpha: 0.18 });
   g.roundRect(-58, -24, 116, 77, 7).fill(house.wall);
@@ -44,14 +44,31 @@ function houseView(house: House) {
     g.roundRect(x - 15, 18, 30, 8, 2).fill(0xad8061);
     for (let i = -1; i <= 1; i++) flower(g, x + i * 8, 16, house.flowers);
   }
-  g.roundRect(-12, 13, 24, 40, 8).fill(0x9b765b);
+  g.roundRect(-12, 13, 24, 40, 8).fill(house.door ?? 0x9b765b);
   g.roundRect(-8, 18, 16, 15, 4).fill(0xe1c799);
   g.circle(6, 37, 2).fill(0xffe2a3);
   g.roundRect(-20, 48, 40, 8, 3).fill(0xd3b793);
   g.roundRect(69, 24, 5, 27, 2).fill(0x967957);
   g.roundRect(62, 19, 20, 13, 4).fill(house.roof);
-  g.circle(-77, 40, 14).circle(-83, 47, 11).fill(0x7da66a);
-  for (let i = 0; i < 4; i++) flower(g, -81 + i * 6, 37 + (i % 2) * 5, house.flowers);
+  if (house.garden === "stones") {
+    g.ellipse(-78, 45, 17, 10).fill(0xd3d1b8); g.ellipse(-83, 42, 7, 4).fill(0xeee8d1); g.ellipse(-66, 49, 6, 5).fill(0xacae99);
+  } else if (house.garden === "herbs") {
+    g.roundRect(-95, 36, 34, 23, 5).fill(0xa98865);
+    for (let i = 0; i < 3; i++) g.ellipse(-88 + i * 10, 36, 6, 12).fill(i % 2 ? 0x83a56d : 0x63856c);
+  } else {
+    g.circle(-77, 40, 14).circle(-83, 47, 11).fill(0x7da66a);
+    for (let i = 0; i < 4; i++) flower(g, -81 + i * 6, 37 + (i % 2) * 5, house.flowers);
+  }
+  if (house.accent === "lantern") {
+    g.roundRect(79, -16, 4, 38, 2).fill(0x657663);
+    g.roundRect(72, -28, 18, 18, 5).fill(0xffdc8f).stroke({ color: 0x657663, width: 2 });
+    g.poly([70, -28, 81, -36, 92, -28]).fill(house.roof);
+  } else if (house.accent === "birdhouse") {
+    g.roundRect(78, -4, 4, 27, 2).fill(0x967957);
+    g.roundRect(70, -23, 24, 24, 3).fill(0xffe8c5); g.poly([66, -22, 82, -37, 98, -22]).fill(house.roof);
+    g.circle(82, -13, 5).fill(0x657663);
+  }
+  if (house.name) label(c, house.name, 0, 106, 11);
   return c;
 }
 function treeView(tree: Tree) {

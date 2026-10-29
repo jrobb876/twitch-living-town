@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "tsx --test src/lib/town/generate.test.ts src/lib/simulation/simulation.test.ts src/lib/auth/*.test.ts src/lib/chat/*.test.ts src/lib/persistence/*.test.ts src/lib/subscribers/*.test.ts"
+    "test": "tsx --test src/lib/town/generate.test.ts src/lib/simulation/simulation.test.ts src/lib/auth/*.test.ts src/lib/chat/*.test.ts src/lib/persistence/*.test.ts src/lib/subscribers/*.test.ts src/lib/houses/*.test.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",

@@ -1,5 +1,15 @@
 # Technical decisions
 
+## 2026-10-28 — Subscriber exterior portal (Prompt 007)
+
+1. **Keep composite property identity.** Use town UUID plus existing house ID in page/API routes. A new server-only RPC lists owned town IDs using the existing owner index; every returned house is rechecked against the authenticated viewer. No new house table or ownership architecture.
+2. **Verify eligibility at save time.** Stored active evidence and ownership are required, followed by the existing Helix subscriber lookup using a matching broadcaster's validated server session. No new OAuth scopes or login behavior. The streamer must be signed in/authorized in the same Node process; unavailable verification denies saves while retaining read access. This is an explicit limitation of process-local sessions.
+3. **Merge a narrow exterior allowlist.** Bounded public house name, six coordinated colors, gardens and one finishing touch. Roof/wall use existing appearance fields; door/fence/garden/accent/name use existing customization fields. Protected identity, size/prestige and unrelated metadata are preserved. Strict schemas reject extra fields and uploaded artwork.
+4. **Reuse drawing and commit semantics.** One `houseView` serves preview and Town Overview; pure draft copies cannot mutate the saved world. Save uses the existing atomic revision check; conflicts retain the draft and require deliberate reload. Public projections expose only selected visual metadata.
+5. **Demonstrate without invented entitlements.** Same editor, separate unowned local sample world, no database writes. Demo route uses the existing build-time presentation gate and resets on reload. No live fixtures or automated browser testing.
+
+This section supersedes earlier milestones' deferred exterior-editor work; inventory, uploads, district expansion and distributed sessions remain deferred.
+
 ## 2026-10-28 — Verified subscriber housing (Prompt 006)
 
 1. **Reuse auth and the EventSub socket.** Deliberate same-account `channel:read:subscriptions` authorization preserves granted chat permission in both upgrade directions. Existing encrypted server tokens, validation/refresh, CSRF and ownership checks remain authoritative. Chat and all four subscription event types use one connection; readiness requires successful registration of the requested set.

@@ -151,9 +151,38 @@ If Twitch denies subscriber access, the panel reports unsupported/unavailable ac
 
 Live events implemented: `channel.subscribe`, `channel.subscription.end`, `channel.subscription.gift`, and `channel.subscription.message`, all version 1. They reuse the existing verified socket lifecycle and transaction processor. Temporary failed deliveries retry up to eight attempts in a bounded process-memory queue; an outage/restart can still lose events. Sync recovers current membership, not missed historical gift totals or celebrations. Twitch exposes no shared gift-batch/recipient correlation key, so batch counts and recipient ownership are reconciled separately without guessing exact membership. Repeated API/recipient events cannot create extra properties or count extra gift batches.
 
-Capacity remains **14 permanent properties per town**: two vacant plots followed by twelve unclaimed starter homes. Additional verified subscribers remain recorded and waitlisted. Legacy homes remain occupied; they are not reassigned to other users. New districts, waitlist fulfillment, a subscriber customization editor, durable event queues, distributed workers and retention jobs remain future work. Sync has safety limits of 100 records/page, 500 pages, 10,000 distinct users and ten minutes; reaching a limit reports partial progress.
+Capacity remains **14 permanent properties per town**: two vacant plots followed by twelve unclaimed starter homes. Additional verified subscribers remain recorded and waitlisted. Legacy homes remain occupied; they are not reassigned to other users. New districts, waitlist fulfillment, durable event queues, distributed workers and retention jobs remain future work. The exterior editor is implemented in Prompt 007. Sync has safety limits of 100 records/page, 500 pages, 10,000 distinct users and ten minutes; reaching a limit reports partial progress.
 
 References: [Get Broadcaster Subscriptions](https://dev.twitch.tv/docs/api/reference/#get-broadcaster-subscriptions) and [EventSub subscription types](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/).
+
+## My Houses and exterior customization (Prompt 007)
+
+**No new environment variables or Twitch scopes.** Review and manually apply [migration 003](supabase/migrations/202610280003_house_portal.sql) after 001 and 002. It adds one server-only indexed lookup for the towns in which a Twitch user owns a property; it changes no existing rows or ownership rules. Existing appearance/customization fields and transactional commits hold all edits. Never rerun 001/002 or apply migrations automatically.
+
+### Try the demo with zero subscribers
+
+1. Run `npm run dev` from `F:\Development\TwitchLivingTown`.
+2. Open **http://localhost:3000/demo/house-editor**. No login, Supabase configuration or actual subscriber is needed.
+3. Change the name, roof/wall/door/fence presets, garden and finishing touch. The enlarged PixiJS cottage updates immediately; the separate demo town below remains unchanged.
+4. Use **Reset to Saved** to discard the draft. Change it again and select **Apply to demo town**. The first cottage in the upper-left residential block updates in that demo town. Pan/zoom to inspect it.
+5. Reload: the sample resets. No user, resident, verified membership or property is created in Supabase. The main town/simulator are separate.
+
+The route is unavailable in a normal production build. For an explicitly authorized presentation, set `TOWN_DEMO_MODE=true` **before** `npm run build`; this enables both the existing simulator and demo editor. Rebuild with it false to disable. Demo editing never gains access to a persistence endpoint.
+
+### Test a verified property
+
+1. Apply migration 003 manually and fully restart `npm run dev`. In one Chrome profile, sign in as the streamer, authorize Subscriber Housing and sync a genuine subscriber. Keep the streamer signed in to this same Node process.
+2. In a different Chrome profile, sign in as that subscriber using basic Twitch login. Open **http://localhost:3000/my-houses** (also available through **My Houses** beside the account controls). Homes across all participating towns appear here; no username claim or new viewer scope is required.
+3. Open a property at `/my-houses/<town-UUID>/<house-ID>`. Active verified properties offer editing; legacy/inactive/unverified properties remain read-only. House size/prestige are shown but cannot be edited.
+4. Change presets and name; confirm **Unsaved changes**. **Save house** validates the viewer, ownership, stored eligibility and current membership through the existing broadcaster-scoped Helix lookup. If the streamer has no usable authorized session, Twitch is unavailable or membership has ended, saving is denied without changing the house. Reconnect the streamer's account/authorization and retry after reloading.
+5. After success, reload the editor and check the saved values. In the streamer's profile, reload the Town Overview or **Reload saved town**. Colors, name, garden and finishing touch must match; placement/ownership/size/prestige remain unchanged. Restarting the server preserves the saved house, although fresh logins are needed to edit again.
+6. Open the same property in two tabs, save in one, then attempt a stale save in the other. Expect a conflict; **Reload saved house** explicitly discards the draft after confirmation. A simultaneous sync/Mayor update can also cause a revision conflict; no automatic overwrite occurs.
+
+Membership rules are unchanged: login never proves entitlement, and the API verifies the subscriber's stable ID against the property's actual broadcaster. The existing broadcaster's `channel:read:subscriptions` grant is reused. Since OAuth sessions are process-local, a streamer must be signed in and authorized for fresh save-time verification. Stored appearance is viewable even when fresh verification is unavailable.
+
+House names allow up to 40 letters/numbers/spaces/apostrophes/periods/hyphens and are public visual data. Uploads, arbitrary colors, inventory and protected metadata changes are not supported. Unrelated customization metadata is preserved. Reload is the reliable way to see another tab's edits. No server-side draft storage, shared sessions or extra EventSub types were added.
+
+`npm test` covers ownership, multiple-town lookup, legacy restrictions, strict input rejection, fresh membership failure, durable save/reload, concurrent expiry, demo isolation and saved appearance projection. Fixtures never create real subscribers or connect to live Supabase/Twitch. GPU visuals and Chrome interactions remain manual.
 
 ## Town controls
 
@@ -191,7 +220,7 @@ npm start
 
 `npm start` serves the production build at http://localhost:3000 (see the HTTPS requirement for production authentication above). Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, simulation, OAuth state/callback failures, session cookies and encryption, expiry, validation/refresh/revocation, and tenant ownership guards. No tests contact Twitch or read local credentials.
 
-Tests include both migrations in disposable PostgreSQL, concurrent allocation/rollback/RLS, subscriber imports and housing lifecycle, mocked EventSub, auth, town generation and live/demo separation. They do not read credentials or contact Twitch/Supabase. Applying migration 002 to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for validation results.
+Tests include all three migrations in disposable PostgreSQL, concurrent allocation/rollback/RLS, subscriber imports, housing/customization lifecycle, mocked EventSub, auth, town generation and live/demo separation. They do not read credentials or contact Twitch/Supabase. Applying outstanding migrations to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for validation results.
 
 ## Structure
 
@@ -231,7 +260,7 @@ supabase/migrations/               Reviewed versioned PostgreSQL migration
 src/instrumentation.ts             Server startup validation/background lifecycle
 ```
 
-The spatial layout uses a fixed connected block template. Seeds vary appearance and planting. New subscribers never trigger regeneration: two expansion plots and 12 unclaimed starter homes provide 14 ownership slots. Arbitrary district expansion, waitlist fulfillment and a customization editor are deferred. Runtime effects are not part of the saved-world shape. Deliberately created towns reload durable data from Supabase; local demos and temporary movement/activity remain in memory. Leaving the page can reset the demo, but it does not reset a saved town.
+The spatial layout uses a fixed connected block template. Seeds vary appearance and planting. New subscribers never trigger regeneration: two expansion plots and 12 unclaimed starter homes provide 14 ownership slots. Arbitrary district expansion and waitlist fulfillment are deferred. Runtime effects are not part of the saved-world shape. Deliberately created towns reload durable data from Supabase; local demos and temporary movement/activity remain in memory. Leaving the page can reset the demo, but it does not reset a saved town.
 
 ## Stack
 

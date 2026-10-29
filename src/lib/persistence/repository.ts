@@ -1,9 +1,9 @@
 import type { AccountProfile } from "../auth/types";
 import type { TownWorld } from "../simulation/types";
 import { PersistenceError, isPersistenceError, type PersistentTownRepository, type StoredTown, type EventReceipt, type CommitResult, type Json } from "./types";
-import { validateWorld } from "./validation";
+import { validateWorld, parseInput, townIdSchema } from "./validation";
 
-export type RpcName = "living_town_load" | "living_town_create" | "living_town_commit";
+export type RpcName = "living_town_load" | "living_town_create" | "living_town_commit" | "living_town_owned_towns";
 export type RpcClient = (name: RpcName, args: Record<string, Json>) => PromiseLike<{ data: unknown; error: { code?: string } | null }>;
 function stored(value: unknown): StoredTown {
   const row = value as Partial<StoredTown> | null;
@@ -13,6 +13,7 @@ function stored(value: unknown): StoredTown {
 const json = (value: unknown): Json => JSON.parse(JSON.stringify(value));
 export class SupabaseTownRepository implements PersistentTownRepository {
   constructor(private rpc: RpcClient) {}
+  async ownedTownIds(userId: string) { return parseInput(townIdSchema.array(), await this.call("living_town_owned_towns", { p_user: userId })); }
   private async call(name: RpcName, args: Record<string, Json>): Promise<unknown> {
     try {
       const { data, error } = await this.rpc(name, args);

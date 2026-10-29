@@ -1,5 +1,20 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 007 — Subscriber house customization
+
+- [x] Inspect Next.js guides and reuse existing auth, subscriber verification, property model, RPC commits and PixiJS artwork.
+- [x] My Houses list across towns, composite property routes, empty/error/loading states and read-only legacy homes.
+- [x] Shared preset editor: public name, roof/wall/door/fence, gardens and accents; preview, Save, Reset and unsaved indicators.
+- [x] Server identity/CSRF/ownership/active-membership checks; fresh broadcaster-scoped verification; strict allowlist and revision conflicts.
+- [x] Preserve protected/unrelated metadata; render saved appearance and selected public visual metadata.
+- [x] Isolated DEMO HOUSE EDITOR and demo town using the existing development/presentation gate.
+- [x] Migration 003 adds only a server-role-owned-town lookup; no automatic live migration.
+- [x] Offline regressions: all 124 tests, lint, TypeScript and production build pass.
+- [x] Update setup, manual demo/verified workflows, architecture and limitations.
+- [ ] User manually applies migration 003 after 001/002 and tests Chrome visuals, saved reload and retained chat/Mayor/camera/simulator.
+
+Limits: streamer authorization must be available in the same Node process for saves; no uploads/inventory, autosaved drafts or guaranteed cross-tab live updates. No live DB access, browser automation, commit or push.
+
 ## Migration 002 pre-application review
 
 - [x] Review 001/002, server-only Supabase client, RPC privilege boundary and session/owner enforcement.
@@ -126,7 +141,7 @@ Prompt 006 implements subscription scopes/ingestion. Customization UI, auth pers
 
 ## Deferred
 
-Real follower/raid/Bits/Channel Points events, Fastify, Socket.IO, OBS, customization editor, new districts, detailed isometric renderer, production art/audio and complex Mayor AI. Prompt 006 adds subscription verification and live subscription/gift events. Demo activity and auth sessions remain in memory. No automatic commits or pushes.
+Real follower/raid/Bits/Channel Points events, Fastify, Socket.IO, OBS, cosmetic inventory/uploads, new districts, detailed isometric renderer, production art/audio and complex Mayor AI. Prompt 007 adds exterior customization. Demo activity and auth sessions remain in memory. No automatic commits or pushes.
 
 ## Completed: EventSub chat (Prompt 004)
 

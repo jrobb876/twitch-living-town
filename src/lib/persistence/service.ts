@@ -2,6 +2,7 @@ import { randomUUID, randomInt } from "node:crypto";
 import { z } from "zod";
 import type { AccountProfile } from "../auth/types";
 import { createWorld, createSession, housesIn } from "../simulation/world";
+import { canCustomize, customizeHouse, exteriorSchema, houseVisual, type PropertyView } from "../houses/customization";
 import { processEvent } from "../simulation/engine";
 import type { TownWorld } from "../simulation/types";
 import { PersistenceError, type PersistentTownRepository, type StoredTown, type DurableEvent, type HouseSettings } from "./types";
@@ -22,6 +23,42 @@ const durableEventSchema = z.discriminatedUnion("type", [
 export class TownPersistenceService {
   constructor(private repository: PersistentTownRepository) {}
   mine(profile: AccountProfile) { return this.repository.findByOwner(profile.twitchUserId); }
+  private propertyView(profile: AccountProfile, town: StoredTown, houseId: string): PropertyView {
+    const house = housesIn(town.world).find((item) => item.id === houseId && item.ownerTwitchUserId === profile.twitchUserId);
+    if (!house) throw new PersistenceError("forbidden");
+    return { townId: town.world.id, townName: town.world.name, revision: town.revision, house,
+      ownerName: profile.displayName, editable: canCustomize(town.world, house, profile.twitchUserId) };
+  }
+  async listOwnProperties(profile: AccountProfile) {
+    const result: PropertyView[] = [];
+    for (const id of await this.repository.ownedTownIds(profile.twitchUserId)) {
+      const town = await this.repository.load(id);
+      const house = town && housesIn(town.world).find((item) => item.ownerTwitchUserId === profile.twitchUserId);
+      if (town && house) result.push(this.propertyView(profile, town, house.id));
+    }
+    return result;
+  }
+  async ownProperty(profile: AccountProfile, townId: string, houseId: string) {
+    const town = await this.repository.load(parseInput(townIdSchema, townId));
+    if (!town) throw new PersistenceError("not_found");
+    return this.propertyView(profile, town, houseId);
+  }
+  async saveOwnExterior(profile: AccountProfile, townId: string, houseId: string, revision: number, input: unknown,
+    verify: (broadcasterId: string, userId: string) => Promise<void>) {
+    const draft = parseInput(exteriorSchema, input);
+    parseInput(z.number().int().positive().max(Number.MAX_SAFE_INTEGER), revision);
+    const town = await this.repository.load(parseInput(townIdSchema, townId));
+    if (!town) throw new PersistenceError("not_found");
+    const property = this.propertyView(profile, town, houseId);
+    if (!property.editable) throw new PersistenceError("forbidden");
+    if (town.revision !== revision) throw new PersistenceError("conflict");
+    await verify(town.world.streamerTwitchUserId, profile.twitchUserId);
+    town.world.buildings = town.world.buildings.map((item) => item.kind === "house" && item.id === houseId ? customizeHouse(item, draft) : item);
+    // The existing transaction CAS rejects a simultaneous subscription end, save or allocation.
+    const saved = await this.repository.commit(town.world.streamerTwitchUserId, town);
+    if (saved.status !== "saved") throw new PersistenceError("conflict");
+    return this.propertyView(profile, saved.town, houseId);
+  }
   async saveSync(profile: AccountProfile, townId: string, input: unknown) {
     const sync = parseInput(syncSchema, input);
     for (let attempt = 0; attempt < 8; attempt++) {
@@ -113,6 +150,7 @@ export class TownPersistenceService {
     return { id: world.id, name: world.name, seed: world.seed, generatorVersion: world.generatorVersion, layout: world.layout,
       districts: world.districts, plots: world.plots, mayor: { name: world.mayor.name, species: world.mayor.species, appearance: world.mayor.appearance },
       buildings: world.buildings.map((building) => building.kind === "town-hall" ? building
-        : { id: building.id, kind: building.kind, plotId: building.plotId, position: building.position, appearance: building.appearance }) };
+        : { id: building.id, kind: building.kind, plotId: building.plotId, position: building.position, appearance: building.appearance,
+          exterior: (({ name, door, fence, garden, accent }) => ({ name, door, fence, garden, accent }))(houseVisual(building)) }) };
   }
 }

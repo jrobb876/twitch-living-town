@@ -5,6 +5,11 @@ export type House = Point & {
   wall: number;
   style: number;
   flowers: number;
+  name?: string;
+  door?: number;
+  fence?: number;
+  garden?: "flowers" | "herbs" | "stones";
+  accent?: "none" | "lantern" | "birdhouse";
 };
 export type Tree = Point & { size: number; variant: number };
 export type PathNode = Point & { id: string; neighbors: string[] };

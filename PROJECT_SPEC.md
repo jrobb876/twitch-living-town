@@ -128,7 +128,7 @@ World schema/generator versions are pinned at 1. Existing coordinates, seed, hou
 
 Planned surfaces: public town directory, full streamer dashboard, subscriber portal, OBS overlay, live Twitch EventSub/Helix features beyond chat, and later Fastify/Socket.IO services.
 
-Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions and Supabase town persistence are implemented. Real follower/raid/Bits/Channel Points events, Socket.IO, OBS, customization editor, arbitrary expansion and an isometric renderer remain deferred. Customization currently means stored, asset-independent settings. Richer Mayor naps, inspections and personality behavior remain future work.
+Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions, Supabase town persistence and subscriber exterior customization are implemented. Real follower/raid/Bits/Channel Points events, Socket.IO, OBS, arbitrary expansion and an isometric renderer remain deferred. Richer Mayor naps, inspections and personality behavior remain future work.
 
 ## Verified Subscriber Housing (Prompt 006)
 
@@ -144,4 +144,16 @@ Subscription end preserves the house as legacy; renewal reactivates the same pro
 
 Live failures retry in a bounded per-broadcaster memory queue (1,000 pending, eight attempts). Sync, queues, sessions and sockets require one continuously running Node process; interruption may lose notifications. A later sync repairs current membership but cannot recreate missed historical gifts. UI polls housing every five seconds and reloads the saved world on revision changes, preserving camera/world identity. Existing temporary effects and Mayor tasks are briefly projected to the owner UI; they are not persisted.
 
-There are 14 fixed property slots. Extra subscribers remain recorded on a waitlist, including after another member's house becomes legacy. New district generation/relocation is not performed. Incremental expansion, durable queues/worker leases, retention, a subscriber editor with fresh entitlement checks and public live viewing remain future work.
+There are 14 fixed property slots. Extra subscribers remain recorded on a waitlist, including after another member's house becomes legacy. New district generation/relocation is not performed. Incremental expansion, durable queues/worker leases, retention and public live viewing remain future work.
+
+## Subscriber exterior portal (Prompt 007)
+
+`/my-houses` lists the authenticated user's properties across towns, including read-only legacy homes. Composite routes `/my-houses/[townId]/[houseId]` retain existing house IDs without collisions across towns. Private GET/PATCH endpoints under `/api/my-houses` resolve the session identity; no submitted owner ID is accepted. Migration 003 adds only `living_town_owned_towns(text)`, an indexed server-role-only lookup, leaving canonical snapshots and existing commits unchanged.
+
+The shared editor offers bounded names, coordinated roof/wall/door/fence colors, three garden options and a lantern/birdhouse accent. A pure copy of the current house drives immediate preview; Save commits the draft, Reset restores saved values. Size, prestige, property ID, plot, owner, geometry and unrelated customization remain protected. Town revision checks reject stale saves, including subscription endings racing verification. There is no automatic conflict retry that could overwrite another user's changes.
+
+Editing requires stored verified active membership/ownership and a fresh Get Broadcaster Subscriptions user-filtered lookup using the streamer's existing validated `channel:read:subscriptions` session. Viewer login remains scope-free. Unavailable streamer sessions, scope loss or Twitch errors fail closed; this retains the single-process auth architecture and existing verification rules. Stored legacy homes stay readable. Fresh subscriber eligibility is not inferred from a resub message or login.
+
+The existing PixiJS `houseView` draws both enlarged previews and town houses. `houseVisual` derives optional exterior settings from the canonical appearance/property model; uncustomized houses retain the original projection/artwork. Names and allowlisted visual fields appear in public visual projections, while other customization metadata remains private. The renderer, camera and generator are not replaced.
+
+`/demo/house-editor` uses the same editor and drawing with an unowned sample house and a separate local world. Applying a draft changes only that demo world. Reload resets it; no network write, invented resident or subscriber ownership exists. The existing development/build-time `TOWN_DEMO_MODE` gate hides this route in normal production builds. GPU rendering and browser interaction checks are manual; automated tests cover pure preview isolation, appearance projection, API authorization and actual PostgreSQL persistence.
