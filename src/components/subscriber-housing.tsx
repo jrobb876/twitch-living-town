@@ -52,6 +52,6 @@ export default function SubscriberHousing({ onPresentation }: { onPresentation: 
       {(status.deliveryError || status.pendingEvents > 0) && <p role="status">Pending events: {status.pendingEvents}. {status.deliveryError ? `Delivery issue: ${status.deliveryError}. Sync Subscribers can reconcile membership; interrupted gift celebrations may not replay.` : "Processing verified events…"}</p>}
     </>}
     {error && <p className="account-error" role="status">{error}</p>}
-    <p className="chat-note">Properties are permanent. Ended subscriptions become legacy homes. The current 14 plots fill before subscribers join the waitlist. Simulated events never appear here.</p>
+    <p className="chat-note">Properties are permanent. Ended subscriptions become legacy homes. Neighborhoods expand automatically as plots fill. If expansion is deferred, retry Sync Subscribers after storage is restored. Simulated events never appear here.</p>
   </section>;
 }

@@ -122,5 +122,40 @@ test("migration 002 preserves populated 001 data and the least-privilege RPC bou
       const result = await service.saveMayor(owner, current.world.id, current.revision, { name: "Still writable" });
       assert.equal(result.world.mayor.name, "Still writable");
     });
+    await t.test("migration 004 upgrades populated data unchanged and permits growth through the existing server RPC only", async () => {
+      await db.exec(await readFile("supabase/migrations/202610280003_house_portal.sql", "utf8"));
+      const before = await snapshot(true), otherBefore = await service.mine(viewer), migration4 = await readFile("supabase/migrations/202610290004_neighborhood_expansion.sql", "utf8");
+      const signature = "public.living_town_commit(text,jsonb,bigint,jsonb)";
+      const functionState = async () => (await db.query<Record<string, unknown>>("select oid,proowner,proacl,prosecdef,proconfig,prosrc from pg_proc where oid=$1::regprocedure", [signature])).rows;
+      const originalFunction = await functionState();
+      // Fail after the helper and replacement have executed, but before COMMIT.
+      // PostgreSQL must roll back both DDL changes and keep the old RPC usable.
+      try { await assert.rejects(db.exec(migration4.replace(/commit;\s*$/i, "select 1 / 0; commit;")), (e: unknown) => (e as { code: string }).code === "22012"); }
+      finally { await db.exec("rollback"); }
+      assert.deepEqual(await functionState(), originalFunction);
+      assert.equal((await db.query<{ helper: string | null }>("select to_regprocedure('public.living_town_assert_growth(jsonb,jsonb)')::text as helper")).rows[0].helper, null);
+      assert.deepEqual(await snapshot(true), before);
+      await db.exec(migration4);
+      const replacementFunction = await functionState();
+      for (const key of ["oid", "proowner", "proacl", "prosecdef", "proconfig"]) assert.deepEqual(replacementFunction[0][key], originalFunction[0][key]);
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        const privileges = (await db.query<{ commit: boolean; helper: boolean }>(
+          "select has_function_privilege($1,$2,'execute') as commit,has_function_privilege($1,'public.living_town_assert_growth(jsonb,jsonb)','execute') as helper", [role, signature])).rows[0];
+        assert.equal(privileges.commit, role === "service_role"); assert.equal(privileges.helper, false);
+      }
+      assert.deepEqual(await snapshot(true), before);
+      try { await assert.rejects(db.exec(migration4), (e: unknown) => (e as { code: string }).code === "42723"); }
+      finally { await db.exec("rollback"); }
+      assert.deepEqual(await snapshot(true), before);
+      for (let i = 0; i < 11; i++) {
+        const result = await service.applyVerifiedEvent({ source: "twitch_verified", event: { id: `growth-${i}`, type: "NEW_SUBSCRIBER", townId: saved.world.id, occurredAt: at + 4,
+          user: { twitchUserId: String(900 + i), displayName: "Additional fixture" } } });
+        assert.equal(result.expansionDeferred, false);
+      }
+      const expanded = (await service.mine(owner))!;
+      assert.equal(expanded.world.plots.length, 26);
+      assert.equal(housesIn(expanded.world).find((h) => h.id === home.id)?.property?.customization.sign, "Keep this");
+      assert.deepEqual(await service.mine(viewer), otherBefore);
+    });
   } finally { await db.close(); }
 });

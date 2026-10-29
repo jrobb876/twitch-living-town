@@ -111,13 +111,13 @@ test("individual gifts before aggregate and repeated recipients across batches p
   assert.equal(wrongGifter.state, state);
 });
 
-test("full towns reuse unclaimed demo homes then waitlist without duplicates or movement", () => {
+test("full towns reuse unclaimed demo homes then expand without duplicates or movement", () => {
   const before = session();
   let state = before;
   for (let index = 0; index < 15; index++) state = apply(state, { type: "NEW_SUBSCRIBER", user: user(`sub-${index}`) });
-  assert.equal(housesIn(state.world).length, 14);
-  assert.equal(new Set(housesIn(state.world).map((h) => h.ownerTwitchUserId)).size, 14);
-  assert.equal(state.world.residents.filter((r) => r.housingStatus === "waiting").length, 1);
+  assert.equal(housesIn(state.world).length, 15);
+  assert.equal(new Set(housesIn(state.world).map((h) => h.ownerTwitchUserId)).size, 15);
+  assert.equal(state.world.residents.filter((r) => r.housingStatus === "waiting").length, 0);
   assert.deepEqual(housesIn(state.world).slice(0, 12).map((h) => h.position), housesIn(before.world).map((h) => h.position));
 });
 

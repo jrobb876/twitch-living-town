@@ -4,8 +4,8 @@ import type { AccountProfile } from "../auth/types";
 import { createWorld, createSession, housesIn } from "../simulation/world";
 import { canCustomize, customizeHouse, exteriorSchema, houseVisual, type PropertyView } from "../houses/customization";
 import { processEvent } from "../simulation/engine";
-import type { TownWorld } from "../simulation/types";
-import { PersistenceError, type PersistentTownRepository, type StoredTown, type DurableEvent, type HouseSettings } from "./types";
+import type { TownWorld, TownEffect, MayorState } from "../simulation/types";
+import { PersistenceError, isPersistenceError, type PersistentTownRepository, type StoredTown, type DurableEvent, type HouseSettings, type CommitResult } from "./types";
 import { createTownSchema, mayorInputSchema, appearanceSchema, propertySchema, parseInput, townIdSchema, twitchId, validateWorld, subscriptionSchema, syncSchema } from "./validation";
 
 const identity = z.object({ twitchUserId: twitchId, displayName: z.string().min(1).max(100) }).strict();
@@ -125,21 +125,34 @@ export class TownPersistenceService {
   }
   /** SERVER ADAPTER ONLY. No HTTP endpoint exposes this; a future verified Twitch adapter must supply evidence.
    * This is not subscription verification. Synthetic/demo events must never call it. */
-  async applyVerifiedEvent(input: { source: "twitch_verified"; event: DurableEvent }) {
+  async applyVerifiedEvent(input: { source: "twitch_verified"; event: DurableEvent }, allowExpansion = true): Promise<CommitResult & {
+    expansionDeferred: boolean; presentation: { effects: TownEffect[]; tasks: MayorState["tasks"] } | null;
+  }> {
     if (input.source !== "twitch_verified") throw new PersistenceError("invalid_input");
     const event = parseInput(durableEventSchema, input.event);
     for (let attempt = 0; attempt < 8; attempt++) {
       const town = await this.repository.load(event.townId);
       if (!town) throw new PersistenceError("not_found");
-      const result = processEvent(createSession(town.world, event.occurredAt), event, event.occurredAt);
+      const result = processEvent(createSession(town.world, event.occurredAt), event, event.occurredAt, { allowExpansion });
       if (result.outcome.status !== "applied") throw new PersistenceError("invalid_input");
       const world = result.state.world;
       world.processedEvents = []; // SQL's unique ledger is durable; no chat/outcome history in world responses.
       for (const house of housesIn(world)) if (house.ownerTwitchUserId && house.property?.status !== "legacy") house.property = this.houseSettings(house.ownerTwitchUserId, house.property);
-      const saved = await this.repository.commit(world.streamerTwitchUserId, { ...town, world: validateWorld(world) },
-        { id: event.id, type: event.type, source: input.source, occurredAt: event.occurredAt, outcome: result.outcome });
-      if (saved.status !== "conflict") return { ...saved, presentation: saved.status === "saved"
-        ? { effects: result.state.runtime.effects, tasks: result.state.runtime.mayor.tasks } : null }; // Temporary presentation is never saved.
+      try {
+        if (!allowExpansion) result.outcome.message += " Neighborhood expansion deferred; retry subscriber sync.";
+        const saved = await this.repository.commit(world.streamerTwitchUserId, { ...town, world: validateWorld(world) },
+          { id: event.id, type: event.type, source: input.source, occurredAt: event.occurredAt, outcome: result.outcome });
+        if (saved.status !== "conflict") return { ...saved, expansionDeferred: !allowExpansion && saved.status === "saved", presentation: saved.status === "saved"
+          ? { effects: result.state.runtime.effects, tasks: result.state.runtime.mayor.tasks } : null };
+      } catch (error) {
+        // SQL failures roll back; an ambiguous network response may have committed.
+        // Re-read and let the receipt resolve that ambiguity before preserving verified
+        // membership using existing capacity, or waitlisting it. A full outage still throws
+        // and is retried by the verified event queue; never claim a successful memory save.
+        if (allowExpansion && world.plots.length > town.world.plots.length && isPersistenceError(error) && error.code !== "forbidden")
+          return this.applyVerifiedEvent(input, false);
+        throw error;
+      }
     }
     throw new PersistenceError("conflict");
   }

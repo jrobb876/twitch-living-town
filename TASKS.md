@@ -1,5 +1,21 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 008 — Automatic neighborhood expansion
+
+- [x] Inspect the generator, graph, saved-world schema, RPC guards, subscriber lifecycle and renderer before extending them.
+- [x] Deterministic twelve-plot districts, four-plot reserve, stable geometry/ownership/customization and connected multi-direction growth.
+- [x] Manual migration 004: append-only growth, existing transactional allocation/dedup/CAS, private helper and unchanged role boundary.
+- [x] Preserve membership/waitlist after expansion rollback; new sync retries housing; total outages remain explicit failures.
+- [x] Sync/live integration, fewer summary reads, neighborhood feedback and bounded Mayor tasks.
+- [x] Larger camera bounds/Fit Town, offscreen culling, cached graph lookup and incremental house appearance updates.
+- [x] Isolated demo buttons to fill capacity, add 12/48 subscribers, repeat growth and reset.
+- [x] 137 tests pass: populated schema upgrade, role grants, competing allocations, sync/live overlap, SQL rollback, lost-response retry, reload, independent towns, geometry, customization, camera and 360/495 logical subscriber cases.
+- [x] Final lint, TypeScript, production build and diff verification pass.
+- [x] Update specification, decisions, setup, manual testing and performance limits.
+- [ ] User manually reviews/applies migration 004 after 001–003 and tests Chrome rendering, existing portal, chat, camera and Mayor behavior.
+
+Limits: 494 plots; full-snapshot/projection commits per subscriber; static roads/flowers; process-local delivery queues; no browser FPS benchmark. No live database access, browser automation, commit or push. Earlier fixed-14 capacity notes below describe superseded milestones.
+
 ## Prompt 007 — Subscriber house customization
 
 - [x] Inspect Next.js guides and reuse existing auth, subscriber verification, property model, RPC commits and PixiJS artwork.

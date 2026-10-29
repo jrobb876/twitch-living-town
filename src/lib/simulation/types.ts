@@ -48,8 +48,9 @@ export type GiftGroup = {
 export type TownWorld = {
   schemaVersion: 1; generatorVersion: 1;
   id: string; streamerTwitchUserId: string; name: string; seed: number;
-  layout: Omit<Town, "houses" | "expansion">;
-  districts: { id: string; name: string; kind: "civic" | "residential"; plotIds: string[] }[];
+  layout: Omit<Town, "houses" | "expansion" | "regions">;
+  districts: { id: string; name: string; kind: "civic" | "residential"; plotIds: string[];
+    generation?: { version: 1; index: number; seed: number; x: number; y: number; width: number; height: number } }[];
   plots: ResidentialPlot[]; buildings: Building[]; residents: Resident[];
   mayor: { id: string; name: string; species: "cat"; headquartersId: string;
     appearance?: { preset: "default" }; personality?: { curiosity: number; energy: number } };
@@ -57,7 +58,7 @@ export type TownWorld = {
   subscriberSync?: SubscriberSync;
 };
 export type TownEffect = {
-  id: string; kind: "arrival" | "housewarming" | "welcome-back" | "gift" | "raid";
+  id: string; kind: "arrival" | "housewarming" | "welcome-back" | "gift" | "raid" | "neighborhood";
   position: WorldPosition; label: string; startedAt: number; expiresAt: number;
 };
 export type Activity = {

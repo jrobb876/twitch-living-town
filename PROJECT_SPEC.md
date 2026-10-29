@@ -50,7 +50,17 @@ All events have `id`, `townId`, `occurredAt` and a discriminated `type`. Foreign
 
 ### Housing
 
-Subscriptions fill the two vacant expansion plots first. After that, the original unclaimed showcase homes can receive owners without moving or restyling them. There are 14 allocatable homes. Further subscribers enter an explicit housing waitlist; incremental growth and waitlist fulfillment are future work. House/resident uniqueness is scoped to `(townId, twitchUserId)`.
+Subscriptions fill the two vacant expansion plots first, then original unclaimed showcase homes, then generated empty plots. Fewer than four available plots appends a twelve-plot neighborhood. Existing homes are never moved or restyled. House/resident uniqueness is scoped to `(townId, twitchUserId)`. Failed expansion or the current safety limit retains membership on a waitlist; a later fresh verified sync/event retries allocation.
+
+### Incremental neighborhoods (Prompt 008)
+
+`simulation/expansion.ts` plans immutable additions using `town/planning.ts`. Stable `neighborhood-N` IDs and a seed derived from the original town seed identify square-spiral cells outside the core. Each 1600 × 1120 cell has twelve residential lots, local streets, garden planting, entrance nodes and a bidirectional street connection to its predecessor. Original geometry is an unchanged prefix; existing navigation nodes gain only new neighbor links. District generation metadata (recipe version 1, index, seed, origin and extent) is persisted in canonical `TownWorld.districts`; normalized district/plot/house rows remain projections. Core schema/generator version 1 is unchanged.
+
+Migration 004 allows append-only growth through the existing server-only commit RPC on verified subscription events. It preserves owner checks, row locks, revision checks, deduplication, property identity and occupancy constraints. It forbids changing old geometry or overlapping new lots. All snapshot, receipt and projection changes commit or roll back together. A failed growth transaction may be followed by a separate membership/waitlist commit; a total database outage still reports failure. Neither migration nor server writes run from demo controls.
+
+Camera bounds derive from persisted district extents, including negative coordinates. Fit Town frames the whole development, while expansion retains the current view. The renderer culls distant homes/trees/backgrounds, updates changed houses independently and rebuilds static scenery only on geometry changes. Logical actors remain capped at 24. A brief neighborhood announcement and bounded Mayor welcome task provide feedback during sync, live events and demo events.
+
+The initial tested target is several hundred homes: 360 subscribers and a 494-plot ceiling (40 generated districts) have logical validation; overflow waitlists without deleting property. JSON/coordinate limits, full-snapshot transactions, static road layers and process-local queues still bound scale. There is no browser FPS benchmark. See README for manual migrations, expansion/recovery checks and development-only demo controls.
 
 ### Gift reconciliation
 
@@ -144,7 +154,7 @@ Subscription end preserves the house as legacy; renewal reactivates the same pro
 
 Live failures retry in a bounded per-broadcaster memory queue (1,000 pending, eight attempts). Sync, queues, sessions and sockets require one continuously running Node process; interruption may lose notifications. A later sync repairs current membership but cannot recreate missed historical gifts. UI polls housing every five seconds and reloads the saved world on revision changes, preserving camera/world identity. Existing temporary effects and Mayor tasks are briefly projected to the owner UI; they are not persisted.
 
-There are 14 fixed property slots. Extra subscribers remain recorded on a waitlist, including after another member's house becomes legacy. New district generation/relocation is not performed. Incremental expansion, durable queues/worker leases, retention and public live viewing remain future work.
+The original 14 property slots now grow through Prompt 008's incremental districts. Legacy homes remain occupied. Deferred expansion and overflow at the tested safety limit retain members on a waitlist for a future verified retry. Durable queues/worker leases, retention, spatial streaming and public live viewing remain future work.
 
 ## Subscriber exterior portal (Prompt 007)
 

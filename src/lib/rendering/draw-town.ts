@@ -1,5 +1,6 @@
 import { Container, Graphics, Text } from "pixi.js";
 import type { House, Town, Tree } from "../town/types";
+import { intersects, type Bounds } from "./camera";
 
 const palette = { grass: 0xaacb91, dark: 0x425e4d, road: 0xe9d5ac, edge: 0xc9b58d };
 function label(parent: Container, text: string, x: number, y: number, size = 12, color = palette.dark) {
@@ -83,8 +84,15 @@ function treeView(tree: Tree) {
   return g;
 }
 
-export function drawTown(town: Town): { world: Container; actors: Container } {
+export function drawTown(town: Town) {
   const world = new Container();
+  const scenery: { view: Container; bounds: Bounds }[] = [];
+  for (const region of town.regions ?? []) {
+    const view = new Container();
+    view.addChild(new Graphics().roundRect(region.x + 25, region.y + 40, region.width - 50, region.height - 75, 90).fill(palette.grass));
+    label(view, region.name.toUpperCase(), region.x + 800, region.y + 160, 18, 0x627e50);
+    world.addChild(view); scenery.push({ view, bounds: region });
+  }
   const terrain = new Graphics(); world.addChild(terrain);
   terrain.roundRect(25, 55, 1550, 1050, 130).fill(0x95b982);
   terrain.roundRect(40, 40, 1520, 1045, 125).fill(palette.grass);
@@ -101,16 +109,33 @@ export function drawTown(town: Town): { world: Container; actors: Container } {
   terrain.roundRect(681, 421, 238, 221, 52).fill(0xcab995);
   terrain.roundRect(687, 415, 226, 221, 48).fill(0xf0dfbc);
   for (let x = 703; x < 900; x += 24) for (let y = 435; y < 630; y += 24) terrain.roundRect(x, y, 19, 19, 4).fill({ color: 0xd9c6a4, alpha: 0.4 });
-  for (const plot of town.expansion) {
-    terrain.roundRect(plot.x - 113, plot.y - 39, 226, 76, 17).fill(0xb7ce9a).stroke({ color: 0x89aa73, width: 2 });
-    for (const side of [-1, 1]) terrain.roundRect(plot.x + side * 99, plot.y - 29, 5, 56, 2).fill(0xe8dfbf);
-    label(world, "ROOM TO GROW", plot.x, plot.y - 4, 13, 0x657e55);
-    label(world, "Future neighborhood", plot.x, plot.y + 16, 10, 0x6c835e);
+  const lots = new Container(); world.addChild(lots);
+  function syncLots(plots: Town["expansion"]) {
+    for (const child of lots.removeChildren()) child.destroy({ children: true });
+    for (const plot of plots) {
+      const view = new Graphics().roundRect(plot.x - 113, plot.y - 39, 226, 76, 17).fill(0xb7ce9a).stroke({ color: 0x89aa73, width: 2 });
+      for (const side of [-1, 1]) view.roundRect(plot.x + side * 99, plot.y - 29, 5, 56, 2).fill(0xe8dfbf);
+      lots.addChild(view);
+      label(lots, "ROOM TO GROW", plot.x, plot.y - 4, 13, 0x657e55);
+      label(lots, "Future neighborhood", plot.x, plot.y + 16, 10, 0x6c835e);
+    }
   }
+  syncLots(town.expansion);
   town.flowers.forEach((f) => flower(terrain, f.x, f.y, f.color));
   const actors = new Container(); actors.sortableChildren = true; world.addChild(actors);
-  town.houses.forEach((h) => actors.addChild(houseView(h)));
-  town.trees.forEach((t) => actors.addChild(treeView(t)));
+  const homes = new Map<string, { view: Container; signature: string; bounds: Bounds }>();
+  function syncHouses(houses: House[]) {
+    const ids = new Set(houses.map((h) => h.id));
+    for (const [id, item] of homes) if (!ids.has(id)) { item.view.destroy({ children: true }); homes.delete(id); }
+    for (const house of houses) {
+      const signature = JSON.stringify(house), old = homes.get(house.id);
+      if (old?.signature === signature) continue;
+      old?.view.destroy({ children: true }); const view = houseView(house); actors.addChild(view);
+      homes.set(house.id, { view, signature, bounds: { x: house.x - 120, y: house.y - 100, width: 240, height: 225 } });
+    }
+  }
+  syncHouses(town.houses);
+  town.trees.forEach((t) => { const view = treeView(t); actors.addChild(view); scenery.push({ view, bounds: { x: t.x - 60, y: t.y - 100, width: 120, height: 120 } }); });
   const hall = new Container(); hall.position.set(town.hall.x, town.hall.y); hall.zIndex = town.hall.y + 60;
   const h = new Graphics(); hall.addChild(h);
   h.ellipse(8, 55, 108, 20).fill({ color: 0x53784d, alpha: 0.17 });
@@ -163,7 +188,10 @@ export function drawTown(town: Town): { world: Container; actors: Container } {
     lamp.poly([-9, -45, 0, -53, 9, -45]).fill(0x6b7d65); actors.addChild(lamp);
   }
   label(world, "WILLOW GREEN", 800, 699, 11, 0x6f885c);
-  return { world, actors };
+  return { world, actors, syncHouses, syncLots, cull(viewport: Bounds) {
+    for (const item of scenery) item.view.visible = intersects(item.bounds, viewport);
+    for (const item of homes.values()) item.view.visible = intersects(item.bounds, viewport);
+  } };
 }
 
 export function drawMayor() {

@@ -14,6 +14,7 @@ export type House = Point & {
 export type Tree = Point & { size: number; variant: number };
 export type PathNode = Point & { id: string; neighbors: string[] };
 export type Town = {
+  regions?: { id: string; name: string; x: number; y: number; width: number; height: number }[];
   seed: number;
   width: number;
   height: number;

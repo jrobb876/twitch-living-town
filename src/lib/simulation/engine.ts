@@ -2,6 +2,8 @@ import { calculateActivity, recordChat } from "./activity";
 import { advanceActor, advanceMayor } from "./behavior";
 import { housesIn, newHouseAppearance } from "./world";
 import type { EventOutcome, Resident, TownEffect, TownEvent, TownSession, TwitchIdentity } from "./types";
+import { addDistrict, availablePlots } from "./expansion";
+import { PLANNING } from "../town/planning";
 
 /** Advance transient state using an injected monotonic millisecond clock. */
 export function tickTown(state: TownSession, now: number): TownSession {
@@ -18,7 +20,7 @@ export function tickTown(state: TownSession, now: number): TownSession {
 }
 
 /** Internal event boundary. Future Twitch adapters supply normalized, verified events. */
-export function processEvent(state: TownSession, event: TownEvent, receivedAt = state.runtime.now): { state: TownSession; outcome: EventOutcome } {
+export function processEvent(state: TownSession, event: TownEvent, receivedAt = state.runtime.now, options = { allowExpansion: true }): { state: TownSession; outcome: EventOutcome } {
   const outcome: EventOutcome = { eventId: event.id, type: event.type, status: "applied", message: "", houseIds: [], residentIds: [] };
   const reject = (message: string) => ({ state, outcome: { ...outcome, status: "rejected" as const, message } });
   if (event.townId !== state.world.id) return reject("Event belongs to a different town.");
@@ -42,6 +44,20 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
   const next = structuredClone(tickTown(state, receivedAt));
   const { world, runtime } = next;
   const now = runtime.now;
+  let expanded = false;
+  function reserve(minimum: number) {
+    if (!options.allowExpansion) return;
+    try {
+      while (availablePlots(world) < minimum) {
+        const planned = addDistrict(world); if (!planned) return;
+        world.layout = planned.layout; world.plots = planned.plots; world.districts = planned.districts; expanded = true;
+        const district = world.districts.at(-1)!;
+        const center = { x: district.generation!.x + 800, y: district.generation!.y + 630 };
+        effect("neighborhood", `${district.name} is open!`, center, 16000);
+        mayorTask(`${district.id}:road:1-2`, "welcome", 600000);
+      }
+    } catch { outcome.message = "Expansion deferred; existing properties retained."; }
+  }
   if ("subscription" in event && event.subscription) {
     const prior = world.residents.find((resident) => resident.twitchUserId === event.user.twitchUserId)?.subscription;
     if (prior && prior.verifiedAt > event.subscription.verifiedAt) {
@@ -81,10 +97,14 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     if (record.houseId) {
       const existing = housesIn(world).find((house) => house.id === record.houseId);
       if (existing?.property) existing.property.status = "verified_subscriber";
+      reserve(PLANNING.reserve);
       return record;
     }
-    const plot = world.plots.find((item) => !item.buildingId)
-      ?? world.plots.find((item) => housesIn(world).some((house) => house.id === item.buildingId && house.ownerTwitchUserId === null));
+    reserve(1);
+    const unclaimed = new Set(housesIn(world).filter((h) => h.ownerTwitchUserId === null).map((h) => h.id));
+    const plot = world.plots.find((item) => !item.buildingId && item.districtId === "expansion")
+      ?? world.plots.find((item) => item.buildingId && unclaimed.has(item.buildingId))
+      ?? world.plots.find((item) => !item.buildingId);
     if (!plot) { record.housingStatus = "waiting"; return record; }
     let house = housesIn(world).find((item) => item.id === plot.buildingId);
     if (!house) {
@@ -96,6 +116,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     outcome.houseIds.push(house.id);
     effect("housewarming", `A home for ${user.displayName}!`, house.position, 12000);
     mayorTask(plot.entranceNodeId, "celebrate");
+    reserve(PLANNING.reserve);
     return record;
   }
   function giftSubscriptions(groupId: string, gifter: TwitchIdentity | null, total: number, recipients: TwitchIdentity[]) {
@@ -129,7 +150,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
       if (event.gift) giftSubscriptions(event.gift.groupId, event.gift.gifter, 0, [event.user]);
       else {
         const record = subscribe(event.user, event.subscription ? 0 : 1);
-        outcome.message = record.houseId ? `${event.user.displayName} has a home. Existing ownership is preserved.` : `${event.user.displayName} joined the housing waitlist; all 14 plots are allocated.`;
+        outcome.message = record.houseId ? `${event.user.displayName} has a home. Existing ownership is preserved.` : `${event.user.displayName} joined the housing waitlist. Expansion is deferred or reached its safety limit; retry subscriber sync.`;
       }
       break;
     }
@@ -169,7 +190,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
   world.processedEvents.push(outcome);
   // Preserve stable geometry references on chat/follower/raid events so observers
   // need not rebuild the overview or discard camera state.
-  world.layout = state.world.layout;
-  if (!outcome.houseIds.length && !("subscription" in event && event.subscription)) { world.buildings = state.world.buildings; world.plots = state.world.plots; }
+  if (!expanded) world.layout = state.world.layout;
+  if (!expanded && !outcome.houseIds.length && !("subscription" in event && event.subscription)) { world.buildings = state.world.buildings; world.plots = state.world.plots; }
   return { state: next, outcome };
 }

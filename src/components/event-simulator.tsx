@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import { processEvent } from "@/lib/simulation/engine";
+import { availablePlots } from "@/lib/simulation/expansion";
 import type { EventOutcome, TownEvent, TownSession, TwitchIdentity } from "@/lib/simulation/types";
 
 type Props = { state: TownSession; onEvent: (event: TownEvent) => void; onReset: () => void };
@@ -23,6 +24,14 @@ export default function EventSimulator({ state, onEvent, onReset }: Props) {
     for (let index = 0; index < (burst ? 8 : 1); index++) send({ ...base(), type: "CHAT_MESSAGE",
       user: burst ? { twitchUserId: `sim-chatter-${index}`, displayName: `Chatter ${index + 1}` } : { twitchUserId: "sim-chatter-0", displayName: "Chatter 1" },
       message: `What a lovely village ${sequence.current++}!` });
+  }
+  function addSubscribers(count: number) {
+    let preview = state;
+    for (let i = 0; i < count; i++) {
+      const event: TownEvent = { ...base(), type: "NEW_SUBSCRIBER", user: identity("Demo subscriber") };
+      const next = processEvent(preview, event); preview = next.state;
+      setResult(next.outcome); setLastEvent(event); onEvent(event);
+    }
   }
   const recent = state.world.processedEvents.slice(-5).reverse();
   return <details className="event-simulator">
@@ -50,6 +59,12 @@ export default function EventSimulator({ state, onEvent, onReset }: Props) {
       <button onClick={() => send({ ...base(), type: "INCOMING_RAID", raider: identity("Raider"), viewers: 25 })}>Incoming raid · 25</button>
       <button disabled={!lastEvent} onClick={() => lastEvent && send(lastEvent)}>Retry last event ID</button>
       <button onClick={onReset}>Reset demo town</button>
+    </div>
+    <p>Neighborhood expansion · {state.world.plots.length} total plots · {availablePlots(state.world)} available. Use Fit town (0) after expanding.</p>
+    <div className="simulator-buttons" aria-label="Development-only neighborhood expansion">
+      <button onClick={() => addSubscribers(availablePlots(state.world) || 1)}>Fill existing capacity</button>
+      <button onClick={() => addSubscribers(12)}>Add 12 demo subscribers</button>
+      <button onClick={() => addSubscribers(48)}>Add 48 demo subscribers</button>
     </div>
     {result && <p role="status" className="simulator-result">{result.status}: {result.message}</p>}
     <ol className="event-log" aria-label="Recent simulated events">

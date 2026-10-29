@@ -24,12 +24,14 @@ export const mayorInputSchema = z.object({ name: nameSchema,
 export const createTownSchema = z.object({ name: nameSchema, mayorName: nameSchema, seed: z.number().int().min(0).max(4294967295).optional() }).strict();
 export const layoutSchema = z.object({ seed: z.number().int().min(0).max(4294967295), width: z.number().positive().max(10000), height: z.number().positive().max(10000),
   plaza: point, hall: point, trees: z.array(point.extend({ size: z.number().positive().max(500), variant: z.number().int().min(0).max(10) })).max(2000),
-  roads: z.array(z.object({ from: point, to: point, width: z.number().positive().max(500) }).strict()).max(500),
-  navigation: z.array(point.extend({ id, neighbors: z.array(id).max(30) }).strict()).min(1).max(1000),
+  roads: z.array(z.object({ from: point, to: point, width: z.number().positive().max(500) }).strict()).max(2048),
+  navigation: z.array(point.extend({ id, neighbors: z.array(id).max(30) }).strict()).min(1).max(2048),
   flowers: z.array(point.extend({ color }).strict()).max(2000) }).strict();
 const worldSchema = z.object({ schemaVersion: z.literal(1), generatorVersion: z.literal(1), id: townIdSchema, streamerTwitchUserId: twitchId,
   name: nameSchema, seed: z.number().int().min(0).max(4294967295), layout: layoutSchema,
-  districts: z.array(z.object({ id, name: z.string().min(1).max(100), kind: z.enum(["civic", "residential"]), plotIds: z.array(id).max(500) }).strict()).max(100),
+  districts: z.array(z.object({ id, name: z.string().min(1).max(100), kind: z.enum(["civic", "residential"]), plotIds: z.array(id).max(500),
+    generation: z.object({ version: z.literal(1), index: z.number().int().min(1).max(40), seed: z.number().int().min(0).max(4294967295),
+      x: point.shape.x, y: point.shape.y, width: z.literal(1600), height: z.literal(1120) }).strict().optional() }).strict()).max(100),
   plots: z.array(z.object({ id, districtId: id, position: point, entranceNodeId: id, buildingId: id.nullable() }).strict()).max(500),
   buildings: z.array(z.discriminatedUnion("kind", [z.object({ id, kind: z.literal("town-hall"), position: point }).strict(),
     z.object({ id, kind: z.literal("house"), position: point, plotId: id, ownerTwitchUserId: twitchId.nullable(), appearance: appearanceSchema, property: propertySchema.optional() }).strict()])).max(501),
@@ -53,12 +55,18 @@ export function validateWorld(input: unknown): TownWorld {
   if (!parsed.success || JSON.stringify(input).length > 1_000_000) throw new PersistenceError("incompatible");
   const world = parsed.data as TownWorld;
   const nodes = new Set(world.layout.navigation.map((node) => node.id));
+  const graph = new Map(world.layout.navigation.map((node) => [node.id, node]));
+  const connected = new Set<string>(["hall"]), queue = ["hall"];
+  for (let i = 0; i < queue.length; i++) for (const neighbor of graph.get(queue[i])?.neighbors ?? []) {
+    if (!connected.has(neighbor)) { connected.add(neighbor); queue.push(neighbor); }
+  }
   const plots = new Map(world.plots.map((plot) => [plot.id, plot]));
   const buildings = new Map(world.buildings.map((building) => [building.id, building]));
   const districts = new Map(world.districts.map((district) => [district.id, district]));
   const residents = new Map(world.residents.map((resident) => [resident.twitchUserId, resident]));
   const ownerIds = world.buildings.flatMap((building) => building.kind === "house" && building.ownerTwitchUserId ? [building.ownerTwitchUserId] : []);
-  if (!nodes.has("hall") || !nodes.has("1-2") || nodes.size !== world.layout.navigation.length
+  if (!nodes.has("hall") || !nodes.has("1-2") || nodes.size !== world.layout.navigation.length || connected.size !== nodes.size
+    || world.layout.navigation.some((node) => node.neighbors.some((id) => !graph.get(id)?.neighbors.includes(node.id)))
     || world.layout.navigation.some((node) => node.neighbors.some((id) => !nodes.has(id)))
     || world.seed !== world.layout.seed || plots.size !== world.plots.length || buildings.size !== world.buildings.length
     || districts.size !== world.districts.length || residents.size !== world.residents.length || new Set(ownerIds).size !== ownerIds.length

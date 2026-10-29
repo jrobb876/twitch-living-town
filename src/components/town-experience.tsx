@@ -64,7 +64,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
       return { ...current, runtime: { ...current.runtime,
         effects: [...current.runtime.effects, ...presentation.effects.map((effect) => ({ ...effect, startedAt: now, expiresAt: now + 12000 }))].slice(-32),
         mayor: { ...current.runtime.mayor, behavior: presentation.tasks.length ? "approaching" : current.runtime.mayor.behavior,
-          tasks: [...current.runtime.mayor.tasks, ...presentation.tasks.map((task) => ({ ...task, expiresAt: now + 120000 }))].slice(-16) } } };
+          tasks: [...current.runtime.mayor.tasks, ...presentation.tasks.map((task) => ({ ...task, expiresAt: now + (task.nodeId.startsWith("neighborhood-") ? 600000 : 120000) }))].slice(-16) } } };
     });
   }, []);
   const receiveSnapshot = useCallback((snapshot: ChatSnapshot | null) => {
@@ -114,7 +114,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
           <div className="village-frame">
             <div className="map-topline"><span className="map-badge"><span className="green-dot" />{world.name} <span className="badge-divider">/</span> Town view</span><span className="weather"><span>☀</span> A lovely day to wander</span></div>
             <TownCanvas key={session.world.id} session={session} />
-            {runtime.effects.length > 0 && <div className="town-announcement" role="status">{runtime.effects.at(-1)!.label}</div>}
+            {runtime.effects.length > 0 && <div className="town-announcement" role="status">{runtime.effects.findLast((e) => e.kind === "neighborhood")?.label ?? runtime.effects.at(-1)!.label}{runtime.effects.some((e) => e.kind === "neighborhood") && " Use Fit town (0) to explore."}</div>}
             <div className="map-bottomline"><span><i className="map-dot" />Procedurally grown, with love</span><span>Drag to explore <b>·</b> Scroll to zoom</span></div>
           </div>
           <aside className="town-sidebar">
@@ -131,6 +131,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
               <div className="stats-row"><span className="stat-icon">⌂</span><div><strong>{housesIn(world).length}</strong><span>Cozy homes</span></div><span className="stat-note">{world.residents.filter((r) => r.houseId).length} subscriber owned</span></div>
               <div className="neighborhood-detail"><span>Residents / subscribers</span><strong>{world.residents.length} / {world.residents.filter((r) => r.isSubscriber).length}</strong></div>
               <div className="neighborhood-detail"><span>Community gifts</span><strong>{giftCount(world)}</strong></div>
+              <div className="neighborhood-detail"><span>New neighborhoods / total plots</span><strong>{world.districts.filter((d) => d.generation).length} / {world.plots.length}</strong></div>
               <div className="neighborhood-detail"><span>Chat activity</span><strong>{runtime.activity.level} · {runtime.activity.score}/100</strong></div>
               <meter className="activity-meter" aria-label="Community chat activity" min={0} max={100} value={runtime.activity.score} />
               {world.residents.some((r) => r.housingStatus === "waiting") && <p className="housing-note">All plots allocated. {world.residents.filter((r) => r.housingStatus === "waiting").length} subscriber(s) awaiting expansion.</p>}

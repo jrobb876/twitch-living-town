@@ -17,9 +17,9 @@ export function overviewOf(world: TownWorld): Town {
       roads.push({ from, to, width: 16 });
     }
   }
-  return { ...world.layout, roads,
+  return { ...world.layout, roads, regions: world.districts.flatMap((d) => d.generation ? [{ id: d.id, name: d.name, ...d.generation }] : []),
     trees: world.layout.trees.filter((tree) => !builtExpansion.some((plot) => Math.abs(tree.x - plot.position.x) < 110 && Math.abs(tree.y - plot.position.y) < 105)),
     houses: housesIn(world).map(houseVisual),
-    expansion: world.plots.filter((plot) => plot.districtId === "expansion" && !plot.buildingId).map((plot) => plot.position),
+    expansion: world.plots.filter((plot) => !plot.buildingId).map((plot) => plot.position),
   };
 }

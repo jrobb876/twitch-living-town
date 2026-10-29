@@ -27,6 +27,7 @@ import { HousingError, type VerifiedSubscriber } from "../subscribers/types";
 import { subscriber, housingNotification } from "../subscribers/test-fixtures";
 import { createHouseHandlers } from "../houses/http";
 import { colors, exteriorOf } from "../houses/customization";
+import { addDistrict } from "../simulation/expansion";
 
 const db = new PGlite();
 before(async () => {
@@ -34,6 +35,7 @@ before(async () => {
   await db.exec(await readFile("supabase/migrations/202610280001_persistent_towns.sql", "utf8"));
   await db.exec(await readFile("supabase/migrations/202610280002_subscriber_housing.sql", "utf8"));
   await db.exec(await readFile("supabase/migrations/202610280003_house_portal.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/202610290004_neighborhood_expansion.sql", "utf8"));
 });
 after(async () => { await db.close(); });
 // Actual PostgreSQL transactions/constraints; no network, env credentials or live DB.
@@ -51,6 +53,117 @@ const profile = () => ({ twitchUserId: String(nextUser++), displayName: "Synthet
 const create = async () => { const owner = profile(); return { owner, town: await service.create(owner, { name: "Test town", mayorName: "Mochi", seed: 42 }) }; };
 const event = (townId: string, user = profile(), id = randomUUID()): Extract<DurableEvent, { type: "NEW_SUBSCRIBER" }> => ({ type: "NEW_SUBSCRIBER", id, townId, occurredAt: NOW, user: { twitchUserId: user.twitchUserId, displayName: user.displayName } });
 const code = (expected: string) => (error: unknown) => error instanceof PersistenceError && error.code === expected;
+
+test("growth SQL accepts all forty deterministic districts, including negative-coordinate expansion", async () => {
+  const { town } = await create();
+  let previous = town.world;
+  for (let i = 0; i < 40; i++) {
+    const next = validateWorld(addDistrict(previous));
+    await db.query("select public.living_town_assert_growth($1::jsonb,$2::jsonb)", [JSON.stringify(previous), JSON.stringify(next)]);
+    previous = next;
+  }
+  assert.equal(previous.plots.length, 494);
+  assert.ok(previous.plots.some((p) => p.position.x < 0 && p.position.y < 0));
+});
+
+test("the backend rejects disconnected, dangling and one-way navigation before a world reaches the RPC", async () => {
+  const { town } = await create(), expanded = addDistrict(town.world)!;
+  const disconnected = structuredClone(expanded);
+  for (const node of disconnected.layout.navigation) node.neighbors = node.neighbors.filter((id) => node.id.startsWith("neighborhood-") === id.startsWith("neighborhood-"));
+  const dangling = structuredClone(expanded); dangling.layout.navigation[0].neighbors.push("missing-node");
+  const oneWay = structuredClone(expanded); oneWay.layout.navigation.find((n) => n.id === "neighborhood-1:road:1-0")!.neighbors = ["neighborhood-1:road:1-1"];
+  for (const world of [disconnected, dangling, oneWay]) assert.throws(() => validateWorld(world), code("incompatible"));
+});
+
+test("concurrent subscriptions at the reserve threshold append one district and preserve customized properties on reload", async () => {
+  const { owner, town } = await create();
+  for (let i = 0; i < 10; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) });
+  let prior = (await service.mine(owner))!;
+  const first = housesIn(prior.world).find((h) => h.ownerTwitchUserId)!;
+  prior = await service.updateHouse(owner, town.world.id, first.id, prior.revision, { customization: { sign: "Preserved" } });
+  prior = await service.saveMayor(owner, town.world.id, prior.revision, { name: "Nori", personality: { energy: 0.8, curiosity: 0.2 } });
+  const a = event(town.world.id), b = event(town.world.id);
+  const outcomes = await Promise.all([a, b, a].map((e) => service.applyVerifiedEvent({ source: "twitch_verified", event: e })));
+  assert.equal(outcomes.filter((r) => r.status === "duplicate").length, 1);
+  assert.ok(outcomes.every((r) => !r.expansionDeferred));
+  let loaded = (await service.mine(owner))!;
+  assert.equal(loaded.world.plots.length, 26); assert.equal(loaded.world.residents.length, 12);
+  for (let i = 0; i < 6; i++) await Promise.all(Array.from({ length: 4 }, () => service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) })));
+  loaded = (await new TownPersistenceService(new SupabaseTownRepository(rpc)).mine(owner))!;
+  assert.equal(loaded.world.plots.length, 50); assert.equal(loaded.world.residents.length, 36);
+  assert.equal(new Set(housesIn(loaded.world).map((h) => h.plotId)).size, 36);
+  assert.deepEqual(housesIn(loaded.world).find((h) => h.id === first.id), housesIn(prior.world).find((h) => h.id === first.id));
+  assert.deepEqual(loaded.world.mayor, prior.world.mayor);
+  assert.deepEqual(loaded.world.layout.roads.slice(0, prior.world.layout.roads.length), prior.world.layout.roads);
+  assert.equal((await db.query<{ count: number }>("select count(*)::int as count from public.living_town_plots where town_id=$1", [town.world.id])).rows[0].count, 50);
+  const independent = await create();
+  for (let i = 0; i < 11; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(independent.town.world.id) });
+  assert.equal((await service.mine(independent.owner))!.world.plots.length, 26);
+  assert.deepEqual((await service.mine(owner))!, loaded);
+});
+
+test("a mid-projection database failure rolls back growth, preserves membership on the waitlist, and recovers on a new sync", async () => {
+  const { owner, town } = await create();
+  for (let i = 0; i < 14; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) }, false);
+  const before = (await service.mine(owner))!, pending = event(town.world.id);
+  await db.exec(`create function public.test_reject_growth() returns trigger language plpgsql as $$ begin raise exception 'synthetic projection failure'; end $$;
+    create trigger test_reject_growth before insert on public.living_town_plots for each row
+    when (new.town_id='${town.world.id}'::uuid and new.id like 'neighborhood-%') execute function public.test_reject_growth();`);
+  try {
+    const saved = await service.applyVerifiedEvent({ source: "twitch_verified", event: pending });
+    assert.equal(saved.status, "saved"); assert.equal(saved.expansionDeferred, true);
+    assert.equal(saved.town.world.residents.at(-1)?.housingStatus, "waiting");
+    assert.equal(saved.town.world.residents.at(-1)?.isSubscriber, true);
+    assert.deepEqual(saved.town.world.layout, before.world.layout);
+    assert.deepEqual(saved.town.world.buildings, before.world.buildings);
+    assert.equal(saved.town.revision, before.revision + 1, "only the fallback transaction commits");
+    assert.equal((await db.query<{ count: number }>("select count(*)::int as count from public.living_town_districts where town_id=$1", [town.world.id])).rows[0].count, before.world.districts.length);
+  } finally { await db.exec("drop trigger test_reject_growth on public.living_town_plots; drop function public.test_reject_growth();"); }
+  assert.equal((await service.applyVerifiedEvent({ source: "twitch_verified", event: pending })).status, "duplicate");
+  const recovered = await service.applyVerifiedEvent({ source: "twitch_verified", event: { ...pending, id: randomUUID() } });
+  assert.equal(recovered.expansionDeferred, false); assert.equal(recovered.town.world.plots.length, 26);
+  assert.equal(recovered.town.world.residents.length, 15); assert.equal(recovered.town.world.residents.at(-1)?.housingStatus, "housed");
+  assert.equal((await db.query<{ count: number }>("select count(*)::int as count from public.living_town_processed_events where town_id=$1", [town.world.id])).rows[0].count, 16);
+});
+
+test("growth SQL rejects changed roads, removed districts, moved navigation and overlapping new plots atomically", async () => {
+  const { owner, town } = await create(), added = addDistrict(town.world)!;
+  const invalid = [structuredClone(added), structuredClone(added), structuredClone(added), structuredClone(added)];
+  invalid[0].layout.roads[0].from.x++;
+  invalid[1].districts.shift();
+  invalid[2].layout.navigation[0].x++;
+  invalid[3].plots[14].position = { ...invalid[3].plots[0].position };
+  for (const world of invalid) {
+    const receipt = { id: randomUUID(), type: "NEW_SUBSCRIBER", source: "twitch_verified", occurredAt: NOW, outcome: {} };
+    await assert.rejects(db.query("select public.living_town_commit($1,$2::jsonb,$3,$4::jsonb)", [owner.twitchUserId, JSON.stringify(world), town.revision, JSON.stringify(receipt)]),
+      (error: unknown) => ["LT409", "LT400"].includes((error as { code: string }).code));
+  }
+  await assert.rejects(repository.commit(owner.twitchUserId, { ...town, world: added }), code("conflict"));
+  assert.deepEqual(await service.mine(owner), town);
+  assert.equal((await db.query("select event_id from public.living_town_processed_events where town_id=$1", [town.world.id])).rows.length, 0);
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    const row = (await db.query<{ allowed: boolean }>("select has_function_privilege($1,'public.living_town_assert_growth(jsonb,jsonb)','execute') as allowed", [role])).rows[0];
+    assert.equal(row.allowed, false);
+  }
+});
+
+test("a lost response after committed growth resolves through the receipt without a duplicate district or false deferral", async () => {
+  const { owner, town } = await create();
+  for (let i = 0; i < 10; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) });
+  let interrupted = false;
+  const uncertain = new TownPersistenceService(new SupabaseTownRepository(async (name, args) => {
+    const result = await rpc(name, args);
+    if (name === "living_town_commit" && !interrupted && !result.error) {
+      interrupted = true; return { data: null, error: { code: "network_interrupted" } };
+    }
+    return result;
+  }));
+  const receipt = event(town.world.id), result = await uncertain.applyVerifiedEvent({ source: "twitch_verified", event: receipt });
+  assert.equal(interrupted, true); assert.equal(result.status, "duplicate"); assert.equal(result.expansionDeferred, false);
+  assert.equal(result.town.world.plots.length, 26); assert.equal(result.town.world.residents.length, 11);
+  assert.equal((await service.applyVerifiedEvent({ source: "twitch_verified", event: receipt })).status, "duplicate");
+  assert.deepEqual(await service.mine(owner), result.town);
+});
 
 test("town creation is deliberate, idempotent, independently owned, and reloads the saved world", async () => {
   const owner = profile(); assert.equal(await service.mine(owner), null);
@@ -292,17 +405,30 @@ test("failed/partial pages retain properties; only a full sync plus direct absen
   assert.equal(renewed?.id, retained?.id); assert.equal(renewed?.property?.status, "verified_subscriber");
 });
 
-test("full towns waitlist verified subscribers without moving houses or taking legacy properties", async () => {
+test("subscriber sync expands full towns without moving houses or taking legacy properties", async () => {
   const h = await housingSetup(), users = Array.from({ length: 16 }, (_, i) => subscriber(String(700 + i)));
   h.setPages([users]); const first = await h.sync();
-  assert.equal(first.verifiedHouses, 14); assert.equal(first.waitlisted, 2); assert.equal(first.lastSync?.waitlisted, 2); assert.equal(first.availablePlots, 0);
+  assert.equal(first.verifiedHouses, 16); assert.equal(first.waitlisted, 0); assert.equal(first.lastSync?.waitlisted, 0); assert.equal(first.availablePlots, 10);
+  assert.equal(first.presentations.filter((p) => p.effects.some((e) => e.kind === "neighborhood")).length, 1);
   const before = (await service.mine(h.owner))!;
   h.setPages([users.slice(1)]); const next = await h.sync();
-  assert.equal(next.legacy, 1); assert.equal(next.waitlisted, 2); assert.equal(next.verifiedHouses, 14);
+  assert.equal(next.legacy, 1); assert.equal(next.waitlisted, 0); assert.equal(next.verifiedHouses, 16);
   const after = (await service.mine(h.owner))!;
   assert.deepEqual(after.world.layout, before.world.layout); assert.deepEqual(after.world.districts, before.world.districts); assert.deepEqual(after.world.plots, before.world.plots);
   assert.deepEqual(housesIn(after.world).map((v) => [v.id,v.ownerTwitchUserId,v.position]), housesIn(before.world).map((v) => [v.id,v.ownerTwitchUserId,v.position]));
   assert.equal(after.world.residents.length, 16);
+});
+
+test("paged sync and simultaneous verified delivery expand sequentially without duplicate properties on resync", async () => {
+  const h = await housingSetup(), users = Array.from({ length: 30 }, (_, i) => subscriber(String(800 + i)));
+  h.setPages([users.slice(0, 15), users.slice(15)]);
+  await Promise.all([h.sync(), service.applyVerifiedEvent({ source: "twitch_verified", event: { ...event(h.town.world.id), user: { twitchUserId: users[29].twitchUserId, displayName: users[29].displayName } } })]);
+  const before = (await service.mine(h.owner))!;
+  assert.equal(before.world.plots.length, 38); assert.equal(before.world.residents.length, 30);
+  assert.equal(new Set(housesIn(before.world).map((h) => h.ownerTwitchUserId)).size, 30);
+  const repeated = await h.sync(); assert.equal(repeated.lastSync?.unchanged, 30); assert.equal(repeated.waitlisted, 0);
+  const after = (await service.mine(h.owner))!;
+  assert.deepEqual(after.world.layout, before.world.layout); assert.deepEqual(after.world.buildings, before.world.buildings);
 });
 
 test("gift aggregate celebrates once; verified recipients, API sync and duplicate deliveries share one house", async () => {
@@ -355,6 +481,13 @@ test("housing controls enforce session/channel/CSRF and viewer lookup returns on
   assert.equal((await handlers.control(request({ action: "sync" }, { "x-csrf-token": "wrong" }))).status, 403);
   assert.equal((await handlers.control(request({ action: "sync" }, { origin: "https://evil.example" }))).status, 403);
   assert.equal((await handlers.control(request({ action: "sync", broadcasterId: "999" }))).status, 400);
+  const beforeForgery = await service.mine(h.owner);
+  for (const forged of [
+    { action: "sync", event: event(h.town.world.id), source: "twitch_verified" },
+    { action: "sync", world: addDistrict(beforeForgery!.world) },
+    { action: "NEW_SUBSCRIBER", user: subscriber("999") },
+  ]) assert.equal((await handlers.control(request(forged))).status, 400);
+  assert.deepEqual(await service.mine(h.owner), beforeForgery);
   const authorized = await handlers.control(request({ action: "authorize" }));
   assert.deepEqual(new Set(new URL((await authorized.json()).location).searchParams.get("scope")!.split(" ")), new Set([SUBSCRIPTION_SCOPE, CHAT_SCOPE]));
   const chat = createChatHandlers(() => h.f.service, () => manager, false);

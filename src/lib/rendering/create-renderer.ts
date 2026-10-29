@@ -2,6 +2,7 @@ import { Application, Container, Graphics, Text } from "pixi.js";
 import type { TownSession } from "../simulation/types";
 import { overviewOf } from "./overview";
 import { drawMayor, drawTown } from "./draw-town";
+import { clampCameraPosition, fitCamera, worldBounds } from "./camera";
 
 export type TownRenderer = {
   update: (session: TownSession) => void;
@@ -35,7 +36,11 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     host.appendChild(app.canvas);
     app.canvas.setAttribute("aria-hidden", "true");
     let snapshot = initial;
-    const town = initial.world.layout;
+    let bounds = worldBounds(initial.world);
+    let fit = 1;
+    const geometryKey = (session: TownSession) => JSON.stringify([session.world.layout, session.world.districts,
+      session.world.plots.filter((p) => p.districtId === "expansion").map((p) => p.buildingId)]);
+    let geometry = geometryKey(initial);
     const world = new Container(); app.stage.addChild(world);
     let scene = drawTown(overviewOf(initial.world)); world.addChild(scene.world);
     let actors = scene.actors;
@@ -47,15 +52,25 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     const residents = new Map<string, Graphics>();
     const effectsLayer = new Container(); world.addChild(effectsLayer);
     const effects = new Map<string, Container>();
+    const cull = () => scene.cull({ x: -world.x / world.scale.x, y: -world.y / world.scale.x,
+      width: app.screen.width / world.scale.x, height: app.screen.height / world.scale.x });
     const update = (next: TownSession) => {
       if (destroyed) return;
-      if (next.world.buildings !== snapshot.world.buildings) {
+      const changed = next.world.layout !== snapshot.world.layout || next.world.plots !== snapshot.world.plots;
+      const nextGeometry = changed ? geometryKey(next) : geometry;
+      if (nextGeometry !== geometry) {
         mayor.removeFromParent(); residents.forEach((actor) => actor.removeFromParent());
         scene.world.destroy({ children: true });
         scene = drawTown(overviewOf(next.world)); actors = scene.actors;
         world.addChildAt(scene.world, 0); actors.addChild(mayor);
         residents.forEach((actor) => actors.addChild(actor));
+        geometry = nextGeometry; bounds = worldBounds(next.world);
+        fit = fitCamera(bounds, app.screen.width, app.screen.height).scale;
+      } else if (next.world.buildings !== snapshot.world.buildings) {
+        const town = overviewOf(next.world);
+        scene.syncHouses(town.houses); scene.syncLots(town.expansion);
       }
+      if (changed || next.world.buildings !== snapshot.world.buildings) cull();
       for (const { residentId, actor } of next.runtime.residentActors) {
         if (!residents.has(residentId)) {
           const person = new Graphics().ellipse(0, 2, 7, 3).fill({ color: 0x48664c, alpha: 0.15 })
@@ -75,7 +90,6 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       }
       snapshot = next;
     };
-    update(initial);
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     app.ticker.maxFPS = 60;
     app.ticker.add((ticker) => {
@@ -99,26 +113,25 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
         visual.zIndex = visual.y;
       }
     });
-    let fit = 1;
     const clampCamera = () => {
-      const s = world.scale.x;
-      world.x = Math.max(80 - town.width * s, Math.min(app.screen.width - 80, world.x));
-      world.y = Math.max(80 - town.height * s, Math.min(app.screen.height - 80, world.y));
+      const position = clampCameraPosition(bounds, app.screen.width, app.screen.height, world.scale.x, world.x, world.y);
+      world.position.set(position.x, position.y); cull();
     };
     const reset = () => {
-      fit = Math.min(app.screen.width / town.width, app.screen.height / town.height) * 0.96;
+      const camera = fitCamera(bounds, app.screen.width, app.screen.height); fit = camera.scale;
       world.scale.set(fit);
-      world.position.set((app.screen.width - town.width * fit) / 2, (app.screen.height - town.height * fit) / 2);
+      world.position.set(camera.x, camera.y); cull();
     };
     const zoomAt = (factor: number, x: number, y: number) => {
       const old = world.scale.x;
-      const next = Math.max(fit * 0.7, Math.min(fit * 3.5, old * factor));
+      const next = Math.max(fit * 0.7, Math.min(Math.max(3.5, fit * 3.5), old * factor));
       world.position.set(x - (x - world.x) * next / old, y - (y - world.y) * next / old);
       world.scale.set(next); clampCamera();
     };
     const zoom = (factor: number) => zoomAt(factor, app.screen.width / 2, app.screen.height / 2);
     const pan = (dx: number, dy: number) => { world.x += dx; world.y += dy; clampCamera(); };
     reset();
+    update(initial);
     observer = new ResizeObserver(() => {
       if (destroyed) return;
       const oldFit = fit;
@@ -126,7 +139,7 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       const centerX = (oldWidth / 2 - world.x) / world.scale.x;
       const centerY = (oldHeight / 2 - world.y) / world.scale.x;
       app.renderer.resize(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
-      fit = Math.min(app.screen.width / town.width, app.screen.height / town.height) * 0.96;
+      fit = fitCamera(bounds, app.screen.width, app.screen.height).scale;
       world.scale.set(world.scale.x * fit / oldFit);
       world.position.set(app.screen.width / 2 - centerX * world.scale.x, app.screen.height / 2 - centerY * world.scale.x);
       clampCamera();

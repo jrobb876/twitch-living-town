@@ -124,7 +124,7 @@ Manual verification:
 8. Optional: the authenticated `/api/town` response exposes your town UUID. `GET /api/towns/<UUID>` returns its public visual projection, with no residents, owner IDs, subscriptions, gifts or private customization data. Do not share the private `/api/town` response or CSRF token.
 9. To test missing configuration, temporarily unset `SUPABASE_SECRET_KEY` locally, restart and try loading. Expect an explicit configuration error. Restore the setting and restart; the real town must load again. Database/network failure and rollback cases are covered offline by the automated tests; no failure creates a replacement town in memory.
 
-Durable writes reuse the existing processor with transaction locks, revision checks, foreign keys and unique event/plot/owner constraints. Tests use disposable embedded PostgreSQL with synthetic identities; no live subscriber ownership is fabricated. Prompt 006 connects verified subscriptions to these APIs. Customization pages and layout expansion remain deferred. All `living_town_*` tables are RLS-enabled and inaccessible to browser roles. Twitch sessions are authorized by Next.js; Supabase Auth is not used, and RLS does not authorize the secret-key server on behalf of a Twitch user.
+Durable writes reuse the existing processor with transaction locks, revision checks, foreign keys and unique event/plot/owner constraints. Tests use disposable embedded PostgreSQL with synthetic identities; no live subscriber ownership is fabricated. Prompt 006 connects verified subscriptions to these APIs; Prompts 007/008 add customization and incremental neighborhoods. All `living_town_*` tables are RLS-enabled and inaccessible to browser roles. Twitch sessions are authorized by Next.js; Supabase Auth is not used, and RLS does not authorize the secret-key server on behalf of a Twitch user.
 
 Town persistence is production-shaped but auth/EventSub still require one long-running Node process. See [limits and deployment follow-up](supabase/README.md). The original labeled local demo remains the development fallback; it is never saved into a real town.
 
@@ -151,7 +151,7 @@ If Twitch denies subscriber access, the panel reports unsupported/unavailable ac
 
 Live events implemented: `channel.subscribe`, `channel.subscription.end`, `channel.subscription.gift`, and `channel.subscription.message`, all version 1. They reuse the existing verified socket lifecycle and transaction processor. Temporary failed deliveries retry up to eight attempts in a bounded process-memory queue; an outage/restart can still lose events. Sync recovers current membership, not missed historical gift totals or celebrations. Twitch exposes no shared gift-batch/recipient correlation key, so batch counts and recipient ownership are reconciled separately without guessing exact membership. Repeated API/recipient events cannot create extra properties or count extra gift batches.
 
-Capacity remains **14 permanent properties per town**: two vacant plots followed by twelve unclaimed starter homes. Additional verified subscribers remain recorded and waitlisted. Legacy homes remain occupied; they are not reassigned to other users. New districts, waitlist fulfillment, durable event queues, distributed workers and retention jobs remain future work. The exterior editor is implemented in Prompt 007. Sync has safety limits of 100 records/page, 500 pages, 10,000 distinct users and ten minutes; reaching a limit reports partial progress.
+Towns start with **14 permanent property slots** and now expand automatically (Prompt 008 below). Legacy homes remain occupied; they are not reassigned to other users. Deferred allocations retain verified subscribers on the waitlist. Durable event queues, distributed workers and retention jobs remain future work. The exterior editor is implemented in Prompt 007. Sync has safety limits of 100 records/page, 500 pages, 10,000 distinct users and ten minutes; reaching a limit reports partial progress.
 
 References: [Get Broadcaster Subscriptions](https://dev.twitch.tv/docs/api/reference/#get-broadcaster-subscriptions) and [EventSub subscription types](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/).
 
@@ -199,7 +199,7 @@ Run `npm run dev`, open http://localhost:3000 and expand **Event simulator** bel
 1. **New follower:** residents increase; houses stay at 12. Watch for a welcome message and small resident actor.
 2. **New subscriber:** an expansion home appears and receives an owner. The Mayor follows paths to visit it and celebrate. Camera zoom/pan should stay unchanged.
 3. **Retry last event ID:** no extra resident, house or effect. **Resubscription** retains the subscriber's existing home and shows a welcome-back message.
-4. **Gift 2 subscriptions**, then **Replay gift recipients:** the gift count and ownership remain unchanged on replay. The event log acknowledges the gifter. Two expansion plots are filled first; later owners receive existing unclaimed homes. After 14 owners, additional subscribers are waitlisted.
+4. **Gift 2 subscriptions**, then **Replay gift recipients:** the gift count and ownership remain unchanged on replay. The event log acknowledges the gifter. Two expansion plots are filled first; later owners receive existing unclaimed homes, followed by newly generated plots. Fewer than four available plots triggers a new neighborhood.
 5. **Chat burst:** eight sample people raise activity and ambient movement. Repeatedly press **Repeated chat**: the same text/user earns no additional activity during the window. With no chat, the score fades to peaceful within 60 seconds.
 6. **Incoming raid:** Town Hall welcomes 25 temporary visitors for 20 seconds; house/resident counts stay unchanged.
 7. **Reset demo town:** clear events, owners, residents and activity while keeping the seed. **Regenerate town** also changes the seed. Reload restores the starter demo.
@@ -220,7 +220,7 @@ npm start
 
 `npm start` serves the production build at http://localhost:3000 (see the HTTPS requirement for production authentication above). Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, simulation, OAuth state/callback failures, session cookies and encryption, expiry, validation/refresh/revocation, and tenant ownership guards. No tests contact Twitch or read local credentials.
 
-Tests include all three migrations in disposable PostgreSQL, concurrent allocation/rollback/RLS, subscriber imports, housing/customization lifecycle, mocked EventSub, auth, town generation and live/demo separation. They do not read credentials or contact Twitch/Supabase. Applying outstanding migrations to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for validation results.
+Tests include all four migrations in disposable PostgreSQL, concurrent allocation/rollback/RLS, subscriber imports, housing/customization lifecycle, mocked EventSub, auth, town generation and live/demo separation. Expansion tests include 360 and 495 logical subscribers, connected paths, stable properties, camera bounds, and a mid-projection database failure. They do not read credentials or contact Twitch/Supabase. Applying outstanding migrations to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for validation results.
 
 ## Structure
 
@@ -260,7 +260,33 @@ supabase/migrations/               Reviewed versioned PostgreSQL migration
 src/instrumentation.ts             Server startup validation/background lifecycle
 ```
 
-The spatial layout uses a fixed connected block template. Seeds vary appearance and planting. New subscribers never trigger regeneration: two expansion plots and 12 unclaimed starter homes provide 14 ownership slots. Arbitrary district expansion and waitlist fulfillment are deferred. Runtime effects are not part of the saved-world shape. Deliberately created towns reload durable data from Supabase; local demos and temporary movement/activity remain in memory. Leaving the page can reset the demo, but it does not reset a saved town.
+The original spatial layout remains fixed. New districts append connected blocks with deterministic planting outside that original footprint. Runtime effects are not part of the saved-world shape. Deliberately created towns reload durable data from Supabase; local demos and temporary movement/activity remain in memory. Leaving the page can reset the demo, but it does not reset a saved town.
+
+## Automatic neighborhoods (Prompt 008)
+
+No new dependencies, environment variables or Twitch permissions. Review and manually apply **[202610290004_neighborhood_expansion.sql](supabase/migrations/202610290004_neighborhood_expansion.sql)** once, after migrations 001–003, using the same database administrator. Do not rerun earlier migrations. The new migration extends the existing transactional commit and adds a private growth-check helper; it regenerates no existing rows. An accidental full-file rerun fails at the existing helper and aborts the transaction. No live migration is applied by the application or tests.
+
+Planning constants live in `src/lib/town/planning.ts`: reserve **4** available plots, **12** plots per new neighborhood. Allocation uses the two original empty lots, unclaimed starter homes, then new empty lots. Claiming the eleventh property in a fresh town leaves three available and appends the first district: **26 total plots, 15 available**. Expansion uses a square spiral of 1600 × 1120 world-unit blocks, stable IDs and a seed derived from town seed/district index. Roads link each block to the previous block. Core coordinates, old roads, ownership, customization and Mayor settings remain intact. Loading saved towns uses their stored geometry, never a new generation pass.
+
+Growth and allocation share the existing row lock, revision retry and event receipt transaction. Repeated deliveries/syncs do not add duplicate properties. If an expansion transaction fails, a separate retry first reloads the town and preserves membership using existing capacity or a waitlist. Sync reports partial progress with `expansion_deferred`/capacity when applicable. Retry **Sync Subscribers** after fixing storage/migration issues; a new verified receipt retries allocation. Replaying an already committed event ID does not bypass deduplication. A complete storage outage cannot save even a waitlist record: the bounded process-local event queue retries, and a fresh sync reconciles membership after recovery. Restarting loses pending in-memory deliveries.
+
+### Manual demo check — no database needed
+
+1. Run `npm run dev` in this workspace and open http://localhost:3000 in Chrome. Select the **simulated** source and expand **Event simulator**.
+2. From a reset demo, click **Fill existing capacity**. It adds 14 synthetic subscribers and grows to 26 total plots. The neighborhood announcement appears; original houses stay in place.
+3. Click **Fit town** (⌗), or focus the canvas and press **0**. Pan/zoom into the new eastern district. Check connecting streets, houses and Mayor movement.
+4. Click **Add 12 demo subscribers**, then **Add 48 demo subscribers** repeatedly. Neighborhoods grow around the original village. Fit Town frames all generated districts; zoom can still inspect individual houses.
+5. **Retry last event ID** must not add a house, resident or district. **Reset demo town** restores the original 14 plots/12 showcase homes; **Regenerate town** changes the demo seed. Saved towns are untouched.
+
+### Manual saved-town check
+
+After manually applying 004, fully restart `npm run dev`, sign in as the broadcaster, reload your saved town, and connect/select the existing live source. Run **Sync Subscribers** with real verified members. Enough occupied properties to cross the reserve threshold must create a connected neighborhood and show a short announcement. Check active/available/waitlisted counts, then sync again: house IDs and layout must remain unchanged. Reload the page, reconnect if needed, and use Fit Town. Confirm a previously customized house and Mayor settings remain intact. Do not use synthetic accounts/events against production storage.
+
+### Performance boundaries
+
+The initial safety ceiling is **40 added neighborhoods / 494 plots**, aligned with schema/size limits. Overflow stays recorded on the waitlist; raising this ceiling requires reviewing coordinate, graph, snapshot and SQL limits together. The 360-subscriber logical test takes roughly two seconds on the development machine; it is not a GPU frame-rate guarantee. Tests also fill all 494 slots plus one waitlisted member. There is no unlimited-scaling claim.
+
+At most 24 resident actors animate; paths use cached node maps. Offscreen homes, trees and district backgrounds are hidden. House-only changes reuse unchanged graphics and retain camera/actors; new districts rebuild static scenery. Roads/flowers remain a shared static layer, and Fit Town necessarily displays many objects. Sync still commits full snapshots and relational projections per subscriber (one extra summary read per page); batching, spatial streaming, durable jobs and browser performance profiling remain future work. Visual checks remain manual.
 
 ## Stack
 

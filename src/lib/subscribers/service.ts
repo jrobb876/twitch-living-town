@@ -63,14 +63,21 @@ export class SubscriberHousingService {
         if (summary.pages >= 500 || seen.size >= 10000 || this.now() - summary.startedAt > 10 * 60000) throw new HousingError("capacity");
         const page = await this.page(grant, cursor); summary.pages++;
         const verifiedAt = this.now();
+        let current = await persistence.owned(grant.profile, townId);
         for (const user of page.subscribers) {
           if (seen.has(user.twitchUserId)) continue;
           seen.add(user.twitchUserId); this.active(grant);
           try {
-            const town = await persistence.owned(grant.profile, townId), prior = town.world.residents.find((r) => r.twitchUserId === user.twitchUserId);
+            const prior = current.world.residents.find((r) => r.twitchUserId === user.twitchUserId);
             const same = prior?.isSubscriber && prior.displayName === user.displayName && prior.subscription?.tier === user.tier && prior.subscription?.isGift === user.isGift;
             const result = await persistence.applyVerifiedEvent({ source: "twitch_verified", event: { id: `sync:${summary.id}:${user.twitchUserId}`, type: "NEW_SUBSCRIBER",
               townId, occurredAt: verifiedAt, user: { twitchUserId: user.twitchUserId, displayName: user.displayName }, subscription: this.evidence(user, "sync", verifiedAt) } });
+            current = result.town;
+            if (result.expansionDeferred) summary.error = "expansion_deferred";
+            const neighborhoods = result.presentation?.effects.filter((effect) => effect.kind === "neighborhood") ?? [];
+            if (neighborhoods.length) this.presentations.set(grant.profile.twitchUserId, [...(this.presentations.get(grant.profile.twitchUserId) ?? []),
+              { id: `expansion:${summary.id}:${user.twitchUserId}`, townId, expiresAt: this.now() + 15000, effects: neighborhoods,
+                tasks: result.presentation!.tasks.filter((task) => task.nodeId.startsWith("neighborhood-") && task.kind === "welcome") }].slice(-32));
             if (!prior) summary.imported++; else if (same) summary.unchanged++; else summary.updated++;
             if (result.town.world.residents.find((r) => r.twitchUserId === user.twitchUserId)?.housingStatus === "waiting") summary.waitlisted++;
           } catch { summary.failed++; summary.error = "unavailable"; }
@@ -95,7 +102,8 @@ export class SubscriberHousingService {
           summary.updated++;
         }
       }
-      summary.status = summary.failed ? "partial" : "complete";
+      if (summary.waitlisted && !summary.error) summary.error = "capacity";
+      summary.status = summary.failed || summary.error === "expansion_deferred" || summary.waitlisted ? "partial" : "complete";
     } catch (error) {
       summary.status = summary.pages || summary.imported || summary.updated ? "partial" : "failed";
       summary.error = housingCode(error);

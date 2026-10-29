@@ -1,5 +1,16 @@
 # Technical decisions
 
+## 2026-10-29 — Automatic neighborhoods (Prompt 008)
+
+1. **Append deterministic districts.** Keep the core generator/version and every existing property coordinate. A versioned square-spiral recipe adds twelve-plot blocks, seeded planting, streets and bidirectional navigation links. Persist recipe metadata and exact geometry; never regenerate a saved town on load. Reserve defaults to four free plots. Constants are centralized; changing block dimensions/capacity requires a compatible recipe and validation review.
+2. **Use the existing transaction boundary.** Migration 004 replaces only the commit's fixed-layout guard with an append-only growth check. The helper is private; service_role still enters via owner-checked commit, not direct table/helper access. Existing property/owner uniqueness, event receipts, CAS and row locks cover concurrent live events and syncs. No in-memory lock is the durability boundary.
+3. **Preserve membership after growth failure.** Roll back the failed transaction, reload and retry the same receipt without growth. Existing slots can still be allocated; otherwise save a waitlist record. A later new verified sync retries housing. A full database outage cannot save that fallback and remains an explicit failure. Permanent/legacy homes are never reclaimed.
+4. **Grow within explicit limits.** Support 40 added districts/494 total plots under existing snapshot/coordinate budgets; test 360 and 495 subscribers. This is a safety ceiling, not unlimited scaling. Full snapshot/projection writes remain; remove the redundant per-record summary read but defer batch RPCs/distributed queues.
+5. **Keep the existing renderer and Mayor.** Derive camera bounds from district extents, preserve pan/zoom during updates, cull offscreen homes/trees/backgrounds and cache graph lookup maps. Reuse unchanged house graphics for cosmetic updates; rebuild static scenery for growth. Keep 24 animated residents and bounded effects/tasks. The companion remains the cat-like Mayor; no new AI system or isometric renderer.
+6. **Keep demos isolated.** Expansion buttons emit existing synthetic events only to the local demo session under the existing development/explicit-demo gate. There are no new client ingestion endpoints or Twitch scopes. Database tests use disposable PGlite; live migration and browser checks remain manual.
+
+This milestone supersedes earlier fixed-capacity and deferred-neighborhood notes. Streaming spatial chunks, batch persistence, unlimited scale and durable delivery workers remain deferred.
+
 ## 2026-10-28 — Subscriber exterior portal (Prompt 007)
 
 1. **Keep composite property identity.** Use town UUID plus existing house ID in page/API routes. A new server-only RPC lists owned town IDs using the existing owner index; every returned house is rechecked against the authenticated viewer. No new house table or ownership architecture.
