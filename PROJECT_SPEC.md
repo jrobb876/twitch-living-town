@@ -6,14 +6,14 @@ A persistent, procedurally generated cozy town representing a Twitch streamer's 
 
 The current visual style remains the **Town Overview**. The deterministic generator, 12 original homes, plaza, Town Hall, landscaping, camera controls and regeneration are preserved. A detailed isometric Living Town renderer is deferred. Town artwork remains programmatic; the account UI can show the authenticated Twitch profile picture.
 
-The simulation milestone added renderer-independent ownership, activity, events and a development simulator. Secure Twitch identity connects streamers/viewers; optional real chat activity uses EventSub WebSockets. Prompt 005 adds deliberate per-streamer town creation and durable worlds in Supabase PostgreSQL. The app uses Next.js App Router, React, TypeScript, Tailwind, ESLint and PixiJS v8.
+The simulation milestone added renderer-independent ownership, activity, events and a development simulator. Secure Twitch identity connects streamers/viewers; optional real chat activity uses EventSub WebSockets. Prompt 005 adds deliberate per-streamer town creation and durable worlds in Supabase PostgreSQL. Prompt 006 adds verified subscriber synchronization, permanent housing and four live subscription event types. The app uses Next.js App Router, React, TypeScript, Tailwind, ESLint and PixiJS v8.
 
 Chat delivery diagnostics distinguish socket connection, confirmed subscription readiness and accepted internal events. Message IDs are opaque strings used unchanged for deduplication; broadcaster messages follow the same rules as other chat. A bounded, temporary queue handles notifications received before the subscription HTTP response. Development-only structured logs expose safe rejection reasons without chat content or credentials. The source selector alone does not indicate subscription readiness. See README for manual verification.
 
 ## Architecture
 
 ```text
-Future Twitch adapter (not implemented) / development simulator
+Verified Twitch adapters / isolated development simulator
                          ↓ normalized TownEvent
 processEvent(session, event, receivedAt) → next session + outcome
 tickTown(session, now)                  → transient simulation updates
@@ -56,7 +56,7 @@ Subscriptions fill the two vacant expansion plots first. After that, the origina
 
 Each gift group retains its gifter, maximum announced total and unique recipient Twitch IDs. Its contribution to gift totals is `max(announcedTotal, uniqueRecipients)`, never their sum. Aggregates without recipient identities create no imaginary houses. Individual gifted NEW_SUBSCRIBER events carry the same `gift.groupId` and gifter as the aggregate. Either delivery order works; duplicate recipients do not repeat housewarmings. Separate groups may legitimately gift to the same resident while retaining a single house.
 
-Cross-message gift counting requires a trustworthy correlation key from a future adapter. The domain does not guess matching batches from timing, display names or gifter alone.
+The simulator supplies explicit gift correlation keys. Twitch's live events do not expose a shared batch/recipient key: aggregate delivery IDs deduplicate batch totals/celebrations, while verified API records and recipient events independently reconcile housing by Twitch user ID. The adapter never guesses matching batches from timing, display names or gifter alone.
 
 ### Chat and behavior
 
@@ -120,12 +120,28 @@ The UI holds separate live/persistent and demo TownSession values. A persistent 
 
 Versioned SQL in `supabase/migrations/202610280001_persistent_towns.sql` creates users, towns, Mayor settings, districts, plots, houses, residents and processed durable events. The world snapshot is canonical and relational projections update atomically through server-only RPCs. One town per owner, composite house identities, unique owner/plot/event constraints and revision locking protect concurrent changes. Verified-event retries rerun the existing processor on the latest snapshot; no second simulation exists. Event/gift retention and large-world scaling remain follow-up work.
 
-Authenticated GET `/api/town` resolves only the signed-in user's town. POST creates one deliberately from bounded names and a server-generated UUID/seed; PATCH saves Mayor settings with a revision guard. Mutations force session validation and require same-origin CSRF protection. The browser cannot supply an owner ID or complete world. Server methods prepare stable house updates and verified resident/subscription event application, with no browser ingestion/customization endpoint and no new Twitch scopes/events. True follower/subscriber evidence is stored with timestamps; missing evidence remains unknown.
+Authenticated GET `/api/town` resolves only the signed-in user's town. POST creates one deliberately from bounded names and a server-generated UUID/seed; PATCH saves Mayor settings with a revision guard. Mutations force session validation and require same-origin CSRF protection. The browser cannot supply an owner ID or complete world. Server methods support stable house updates and verified subscription application, with no browser event-ingestion/customization endpoint. Subscription evidence stores active/inactive state, tier, gift status, source and verification time; missing evidence remains unknown.
 
 RLS is enabled on every new table, browser privileges are revoked, and only the server role can execute intended RPC entry points. Twitch sessions remain separate from Supabase Auth. The server secret bypasses RLS, so Next.js authorizes every protected operation. Public GET `/api/towns/[townId]` selects visual data and excludes ownership, residents and contribution details. Configuration/database failures are explicit and never turn a failed production save into an in-memory success. The labeled demo has no persistence path.
 
-World schema/generator versions are pinned at 1. Existing coordinates, seed, house/plot identity and assigned ownership cannot change through normal saves. Unknown versions fail closed and require a reviewed migration. Mayor appearance/personality and house size/prestige/customization are stored as bounded settings; this milestone adds no new visual behavior, economy or subscriber UI. See `supabase/README.md` for setup and production limits.
+World schema/generator versions are pinned at 1. Existing coordinates, seed, house/plot identity and assigned ownership cannot change through normal saves. Unknown versions fail closed and require a reviewed migration. Mayor appearance/personality and house size/prestige/customization are stored as bounded settings. Subscriber Housing reuses existing renderer/effects and adds no economy or customization editor. See `supabase/README.md` for setup and production limits.
 
 Planned surfaces: public town directory, full streamer dashboard, subscriber portal, OBS overlay, live Twitch EventSub/Helix features beyond chat, and later Fastify/Socket.IO services.
 
-Twitch OAuth, Helix identity, EventSub chat and Supabase town persistence are implemented. Real follower/subscription/gift/raid/Bits/Channel Points events, Socket.IO, OBS, customization editor, subscription verification, arbitrary expansion and an isometric renderer remain deferred. Customization currently means stored, asset-independent settings. Richer Mayor naps, inspections and personality behavior remain future work.
+Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions and Supabase town persistence are implemented. Real follower/raid/Bits/Channel Points events, Socket.IO, OBS, customization editor, arbitrary expansion and an isometric renderer remain deferred. Customization currently means stored, asset-independent settings. Richer Mayor naps, inspections and personality behavior remain future work.
+
+## Verified Subscriber Housing (Prompt 006)
+
+An explicit same-account OAuth upgrade requests `channel:read:subscriptions`, retaining already granted chat scope. Both upgrade directions validate all requested scopes before replacing the session. Sync/connect controls derive broadcaster and town ownership from the validated session, never from browser claims. Basic login and chat grant no subscriber entitlement.
+
+`src/lib/subscribers` contains a bounded Helix pagination adapter, notification mapper and orchestration service. GET `/api/subscribers` exposes only the current account's housing counts, last sync and connection status. Its CSRF-protected POST supports authorize/sync/connect/disconnect. GET `/api/subscribers/house?townId=<UUID>` selects only the signed-in user's house in that town; legacy ownership is not proof of active entitlement. There is no customization mutation endpoint.
+
+Sync applies each verified user through the existing processor and SQL commit, preserving customization and stable plots. A single running job per broadcaster tracks imported/updated/unchanged/waitlisted/failed records and pages. Partial failures retain progress; failed pages never cause membership deletion. After a complete walk, missing active users require an additional empty user-filtered API response before becoming inactive. Twitch pagination is not an atomic snapshot. Older timestamped evidence cannot overwrite newer membership state. Migration 002 adds optional evidence/sync fields to schema v1 and updates the private relational projections, retaining all original transaction constraints.
+
+The existing EventSub connection registers version-1 `channel.subscribe`, `channel.subscription.end`, `channel.subscription.gift`, and `channel.subscription.message` with broadcaster-only conditions. Chat and housing share one socket. Readiness requires all requested Create Subscription responses to match enabled status, identity, type, version, transport and session; handoff transfers registrations without recreating them. Independent controls restart the socket when the requested set changes. Stable Twitch delivery IDs are deduplicated by SQL before committing effects/projections.
+
+Subscription end preserves the house as legacy; renewal reactivates the same property. Resub messages require a current API record and retain maximum known cumulative months. Aggregate gifts store one batch/celebration and schedule an API sync; individual recipients receive homes, never the gifter by attribution. Anonymous gifters are represented by null. Recipient events and sync do not increment gift totals. Exact batch-recipient correlation is unavailable and is not fabricated.
+
+Live failures retry in a bounded per-broadcaster memory queue (1,000 pending, eight attempts). Sync, queues, sessions and sockets require one continuously running Node process; interruption may lose notifications. A later sync repairs current membership but cannot recreate missed historical gifts. UI polls housing every five seconds and reloads the saved world on revision changes, preserving camera/world identity. Existing temporary effects and Mayor tasks are briefly projected to the owner UI; they are not persisted.
+
+There are 14 fixed property slots. Extra subscribers remain recorded on a waitlist, including after another member's house becomes legacy. New district generation/relocation is not performed. Incremental expansion, durable queues/worker leases, retention, a subscriber editor with fresh entitlement checks and public live viewing remain future work.

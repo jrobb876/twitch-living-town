@@ -1,5 +1,32 @@
 # Twitch Living Town — Task tracker
 
+## Migration 002 pre-application review
+
+- [x] Review 001/002, server-only Supabase client, RPC privilege boundary and session/owner enforcement.
+- [x] Confirm private helper/table revocations and nullable boolean expiry status are intentional; no functional SQL or application changes required.
+- [x] Add SQL comments and manual application/rerun guidance.
+- [x] Add disposable PostgreSQL tests for populated upgrade preservation, service-role create/load/commit, denied direct/browser access, cross-owner writes, expiry evidence and atomic rerun failure.
+- [x] Lint, TypeScript, all 114 tests, production build and diff whitespace checks passed.
+- [ ] Manual application by user using the same database administrator as migration 001. Live Supabase remains untouched.
+
+## Prompt 006 — Verified subscriber housing
+
+- [x] Reuse OAuth, validated server tokens, shared WebSocket, existing processor and transactional town repository.
+- [x] Deliberate same-account subscription permission upgrade; preserve granted chat permission in either upgrade direction.
+- [x] Paginated subscriber sync with stable Twitch IDs, idempotent homes, durable progress, partial failures and targeted absence verification.
+- [x] Four version-1 live events: subscribe, subscription end, gift batch and resub message; registered-subscription routing and reconnection.
+- [x] Gift recipient ownership, anonymous-safe batches, one batch celebration, and independent API reconciliation without invented correlation.
+- [x] Permanent legacy homes, renewal retention, tier/gift/time evidence, available cumulative tenure and older-evidence protection.
+- [x] Subscriber Housing panel, saved-world refresh, existing Mayor/effects and authenticated own-house lookup.
+- [x] Preserve 14 stable slots; retain additional verified subscribers on an explicit waitlist.
+- [x] Add migration 002 and offline regressions for authorization, pages, failure/retry, imports, duplicates, gifts, retention, ownership and shared sockets.
+- [x] Update README, specification, decisions, environment comments and manual migration instructions.
+- [x] Lint, TypeScript, all 109 tests, production build and diff review passed.
+- [ ] User reviews/applies `supabase/migrations/202610280002_subscriber_housing.sql` after 001; no live migration is applied automatically.
+- [ ] Manual Chrome: authorize, sync twice, connect four events, verify saved housing and existing chat/Mayor/camera/simulator. Follow README.
+
+Limitations: fixed capacity/waitlist; no exact Twitch gift batch-recipient correlation; single-process jobs and event retry queue; no historical event recovery or subscriber customization editor. No browser automation, commit or push.
+
 ## Prompt 005 — Persistent towns
 
 - [x] Inspect existing models, processor, housing, auth and live/demo integration; preserve the Overview.
@@ -16,7 +43,7 @@
 - [ ] User reviews/applies `supabase/migrations/202610280001_persistent_towns.sql` to the intended project and sets the two server variables.
 - [ ] Manual Chrome/Supabase verification: create/reload after restart, second account, Mayor save, live chat, camera and isolated simulator.
 
-New scopes, verified subscription ingestion/customization UI, auth persistence and distributed sockets remain deferred. No live migration, browser automation, commit or push is performed by this implementation.
+Prompt 006 implements subscription scopes/ingestion. Customization UI, auth persistence and distributed sockets remain deferred. No live migration, browser automation, commit or push is performed by this implementation.
 
 ## Completed: foundation
 
@@ -61,7 +88,7 @@ New scopes, verified subscription ingestion/customization UI, auth persistence a
 2. Add canvas lifecycle/camera retention integration tests and broader mobile/touch checks.
 3. Implement incremental districts and housing waitlist fulfillment.
 4. Add shared auth storage, validation workers, durable event retention and production rollout controls; transactional town storage and migrations are implemented in Prompt 005.
-5. Define stable gift correlation and payload validation before adding live event types beyond chat.
+5. Add durable event intake/retention and production quotas. Keep Twitch gift aggregate counts separate from verified recipient ownership; no exact batch correlation is available.
 6. Add public town browsing and subscriber customization controls after independently verified subscription entitlement.
 
 ## Completed: secure Twitch authentication (Prompt 003)
@@ -99,7 +126,7 @@ New scopes, verified subscription ingestion/customization UI, auth persistence a
 
 ## Deferred
 
-Real follower/subscription/gift/raid/Bits/Channel Points events, Fastify, Socket.IO, OBS, subscriber entitlement verification, customization editor, detailed isometric renderer, production art/audio and complex Mayor AI. Prompt 005 persists deliberate towns in Supabase; demo activity and auth sessions remain in memory. No automatic commits or pushes.
+Real follower/raid/Bits/Channel Points events, Fastify, Socket.IO, OBS, customization editor, new districts, detailed isometric renderer, production art/audio and complex Mayor AI. Prompt 006 adds subscription verification and live subscription/gift events. Demo activity and auth sessions remain in memory. No automatic commits or pushes.
 
 ## Completed: EventSub chat (Prompt 004)
 

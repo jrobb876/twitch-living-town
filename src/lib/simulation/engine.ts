@@ -27,7 +27,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
   if (previous) return { state, outcome: { ...previous, status: "duplicate", message: "Already processed; town unchanged." } };
   const identities = "user" in event ? [event.user, ...(event.type === "NEW_SUBSCRIBER" && event.gift ? [event.gift.gifter] : [])]
     : event.type === "GIFT_SUBSCRIPTION" ? [event.gifter, ...event.recipients] : [event.raider];
-  if (identities.some((user) => !user.twitchUserId.trim() || !user.displayName.trim())) return reject("A Twitch identity is missing.");
+  if (identities.some((user) => user !== null && (!user.twitchUserId.trim() || !user.displayName.trim()))) return reject("A Twitch identity is missing.");
   if (event.type === "GIFT_SUBSCRIPTION" && (!event.groupId.trim() || !Number.isSafeInteger(event.total) || event.total < 0)) return reject("Invalid gift group or count.");
   if (event.type === "NEW_SUBSCRIBER" && event.gift && !event.gift.groupId.trim()) return reject("Missing gift correlation ID.");
   if (event.type === "RESUBSCRIPTION" && (!Number.isSafeInteger(event.cumulativeMonths) || event.cumulativeMonths < 1)) return reject("Invalid cumulative subscription months.");
@@ -36,12 +36,19 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     : event.type === "NEW_SUBSCRIBER" ? event.gift : undefined;
   if (gift) {
     const existing = state.world.giftGroups.find((group) => group.id === gift.groupId);
-    if (existing && existing.gifter.twitchUserId !== gift.gifter.twitchUserId) return reject("Gift group has a different gifter.");
+    if (existing && existing.gifter?.twitchUserId !== gift.gifter?.twitchUserId) return reject("Gift group has a different gifter.");
   }
   // Copy only at the event boundary. Ticks retain the durable world reference.
   const next = structuredClone(tickTown(state, receivedAt));
   const { world, runtime } = next;
   const now = runtime.now;
+  if ("subscription" in event && event.subscription) {
+    const prior = world.residents.find((resident) => resident.twitchUserId === event.user.twitchUserId)?.subscription;
+    if (prior && prior.verifiedAt > event.subscription.verifiedAt) {
+      outcome.message = "Older subscription evidence ignored.";
+      world.processedEvents.push(outcome); return { state: next, outcome };
+    }
+  }
   function effect(kind: TownEffect["kind"], label: string, position = world.layout.hall, lifetime = 8000) {
     runtime.effects.push({ id: `${event.id}:${runtime.effects.length}`, kind, label, position: { ...position }, startedAt: now, expiresAt: now + lifetime });
     runtime.effects = runtime.effects.slice(-32);
@@ -70,7 +77,12 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
   function subscribe(user: TwitchIdentity, months = 1): Resident {
     const record = resident(user);
     record.isSubscriber = true; record.subscriptionMonths = Math.max(record.subscriptionMonths, months);
-    if (record.houseId) return record;
+    if ("subscription" in event && event.subscription) record.subscription = { ...event.subscription };
+    if (record.houseId) {
+      const existing = housesIn(world).find((house) => house.id === record.houseId);
+      if (existing?.property) existing.property.status = "verified_subscriber";
+      return record;
+    }
     const plot = world.plots.find((item) => !item.buildingId)
       ?? world.plots.find((item) => housesIn(world).some((house) => house.id === item.buildingId && house.ownerTwitchUserId === null));
     if (!plot) { record.housingStatus = "waiting"; return record; }
@@ -86,19 +98,19 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     mayorTask(plot.entranceNodeId, "celebrate");
     return record;
   }
-  function giftSubscriptions(groupId: string, gifter: TwitchIdentity, total: number, recipients: TwitchIdentity[]) {
+  function giftSubscriptions(groupId: string, gifter: TwitchIdentity | null, total: number, recipients: TwitchIdentity[]) {
     let group = world.giftGroups.find((item) => item.id === groupId);
     if (!group) {
-      group = { id: groupId, gifter: { ...gifter }, announcedCount: total, recipientIds: [] };
+      group = { id: groupId, gifter: gifter ? { ...gifter } : null, announcedCount: total, recipientIds: [] };
       world.giftGroups.push(group);
-      effect("gift", `Thank you, ${gifter.displayName}, for the gifts!`, world.layout.plaza, 12000);
+      effect("gift", `Thank you, ${gifter?.displayName ?? "anonymous neighbor"}, for the gifts!`, world.layout.plaza, 12000);
     }
     group.announcedCount = Math.max(group.announcedCount, total);
     for (const recipient of recipients) {
       if (group.recipientIds.includes(recipient.twitchUserId)) continue;
       group.recipientIds.push(recipient.twitchUserId); subscribe(recipient);
     }
-    outcome.message = `Gifts from ${gifter.displayName}: ${Math.max(group.announcedCount, group.recipientIds.length)} total, ${group.recipientIds.length} identified recipients. Counts are reconciled per gift group.`;
+    outcome.message = `Gifts from ${gifter?.displayName ?? "anonymous neighbor"}: ${Math.max(group.announcedCount, group.recipientIds.length)} total, ${group.recipientIds.length} identified recipients. Counts are reconciled per gift group.`;
   }
   switch (event.type) {
     case "CHAT_MESSAGE": {
@@ -116,7 +128,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     case "NEW_SUBSCRIBER": {
       if (event.gift) giftSubscriptions(event.gift.groupId, event.gift.gifter, 0, [event.user]);
       else {
-        const record = subscribe(event.user);
+        const record = subscribe(event.user, event.subscription ? 0 : 1);
         outcome.message = record.houseId ? `${event.user.displayName} has a home. Existing ownership is preserved.` : `${event.user.displayName} joined the housing waitlist; all 14 plots are allocated.`;
       }
       break;
@@ -127,6 +139,15 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
       effect("welcome-back", `Welcome back, ${event.user.displayName}!`, house?.position);
       if (house) mayorTask(world.plots.find((plot) => plot.id === house.plotId)!.entranceNodeId, "celebrate");
       outcome.message = `${event.user.displayName}: ${record.subscriptionMonths} months. One resident, at most one home.`;
+      break;
+    }
+    case "SUBSCRIPTION_ENDED": {
+      const record = resident(event.user);
+      record.isSubscriber = false; record.subscription = { ...event.subscription, active: false };
+      if (!record.houseId) record.housingStatus = "none";
+      const house = housesIn(world).find((house) => house.id === record.houseId);
+      if (house) { house.property = { size: "small", prestige: 0, customization: {}, ...house.property, status: "legacy" }; outcome.houseIds.push(house.id); }
+      outcome.message = "Subscription ended; existing property retained.";
       break;
     }
     case "GIFT_SUBSCRIPTION": giftSubscriptions(event.groupId, event.gifter, event.total, event.recipients); break;
@@ -149,6 +170,6 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
   // Preserve stable geometry references on chat/follower/raid events so observers
   // need not rebuild the overview or discard camera state.
   world.layout = state.world.layout;
-  if (!outcome.houseIds.length) { world.buildings = state.world.buildings; world.plots = state.world.plots; }
+  if (!outcome.houseIds.length && !("subscription" in event && event.subscription)) { world.buildings = state.world.buildings; world.plots = state.world.plots; }
   return { state: next, outcome };
 }

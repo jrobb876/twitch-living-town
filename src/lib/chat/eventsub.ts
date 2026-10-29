@@ -2,6 +2,8 @@ import { isAuthError } from "../auth/types";
 import { identifier, record } from "./mapping";
 import type { ChatConnectionState } from "./types";
 import { chatDiagnostic } from "./diagnostics";
+import type { EventSubType } from "./subscription";
+export type EventSubRegistration = { id: string; type: EventSubType };
 
 export const EVENTSUB_URL = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30";
 export type SocketFactory = (url: string, handlers: { message: (data: unknown) => void; closed: (code?: number) => void; error: () => void }) => { close: () => void };
@@ -10,24 +12,24 @@ type Dependencies = {
   socket: SocketFactory; now: () => number; random: () => number;
   credentials: () => Promise<{ accessToken: string }>;
   authorized: () => boolean;
-  subscribe: (token: string, sessionId: string) => Promise<string>;
+  subscribe: (token: string, sessionId: string) => Promise<string | EventSubRegistration[]>;
   notification: (value: unknown) => void;
   revoked: () => void;
 };
 
-/** One channel, one subscription. tick() drives timeouts/backoff, independent of HTTP traffic. */
+/** One channel and its registered subscriptions. tick() drives timeouts/backoff independently of HTTP traffic. */
 export class EventSubConnection {
   status: ChatConnectionState = "disconnected";
   private primary?: Slot;
   private handoff?: Slot;
-  private subscriptionId?: string;
+  private subscriptions?: EventSubRegistration[];
   private wanted = false;
   private epoch = 0;
   private attempts = 0;
   private retryAt = 0;
   constructor(private deps: Dependencies) {}
   get socketConnected() { return Boolean(this.primary?.welcomed); }
-  get subscriptionReady() { return this.socketConnected && Boolean(this.subscriptionId) && this.status === "connected"; }
+  get subscriptionReady() { return this.socketConnected && Boolean(this.subscriptions?.length) && this.status === "connected"; }
   start() {
     if (this.wanted) return;
     this.wanted = true; this.attempts = 0;
@@ -39,7 +41,7 @@ export class EventSubConnection {
   }
   private closeSockets() {
     const a = this.primary, b = this.handoff;
-    this.primary = undefined; this.handoff = undefined; this.subscriptionId = undefined;
+    this.primary = undefined; this.handoff = undefined; this.subscriptions = undefined;
     for (const slot of [a, b]) if (slot) { slot.pending = []; slot.token = undefined; }
     a?.socket?.close(); b?.socket?.close();
   }
@@ -50,7 +52,7 @@ export class EventSubConnection {
   }
   private terminal(error: unknown) {
     chatDiagnostic("socket", "failure", {}, error);
-    if (isAuthError(error) && ["unauthorized", "chat_scope", "invalid_token"].includes(error.code)) {
+    if (isAuthError(error) && ["unauthorized", "chat_scope", "subscription_scope", "invalid_token"].includes(error.code)) {
       this.stop("revoked"); this.deps.revoked();
     } else this.fail();
   }
@@ -114,7 +116,8 @@ export class EventSubConnection {
         const id = await this.deps.subscribe(token, slot.sessionId);
         if (!this.current(slot)) return;
         if (!this.deps.authorized()) { this.stop("revoked"); return; }
-        this.subscriptionId = id; this.status = "connected"; this.attempts = 0;
+        this.subscriptions = typeof id === "string" ? [{ id, type: "channel.chat.message" }] : id;
+        this.status = "connected"; this.attempts = 0;
         chatDiagnostic("subscription_ready", "success");
         const pending = slot.pending; slot.pending = [];
         for (const envelope of pending) this.deliver(slot, envelope);
@@ -123,7 +126,7 @@ export class EventSubConnection {
     }
     if (!slot.welcomed) { chatDiagnostic("frame", "ignored", { reason: "before_welcome" }); return; }
     if (meta.message_type === "session_keepalive") { slot.deadline = this.deps.now() + slot.keepalive; chatDiagnostic("keepalive", "received"); return; }
-    if (meta.message_type === "session_reconnect" && slot === this.primary && !this.handoff && this.subscriptionId) {
+    if (meta.message_type === "session_reconnect" && slot === this.primary && !this.handoff && this.subscriptions?.length) {
       const session = record(payload.session), url = session.reconnect_url;
       if (session.id !== slot.sessionId || typeof url !== "string") { chatDiagnostic("reconnect", "rejected", { reason: "invalid_reconnect" }); return; }
       try {
@@ -145,14 +148,15 @@ export class EventSubConnection {
     if (meta.message_type !== "notification" && meta.message_type !== "revocation") { chatDiagnostic("frame", "ignored", { reason: "unsupported_message" }); return; }
     // Twitch may deliver as soon as the subscription exists, before fetch resolves.
     // Hold a bounded number on this socket, then verify the returned subscription ID.
-    if (!this.subscriptionId && !slot.migrating) {
+    if (!this.subscriptions && !slot.migrating) {
       if (slot.pending.length >= 100) { chatDiagnostic("notification", "ignored", { reason: "pending_capacity" }); return; }
       slot.pending.push(envelope);
       chatDiagnostic("notification", "received", { reason: "subscription_pending" });
       return;
     }
-    const reason = !this.subscriptionId ? "subscription_pending" : subscription.id !== this.subscriptionId ? "subscription_mismatch"
-      : subscription.type !== "channel.chat.message" || subscription.version !== "1" ? "event_type"
+    const registered = this.subscriptions?.find((item) => item.id === subscription.id);
+    const reason = !this.subscriptions ? "subscription_pending" : !registered ? "subscription_mismatch"
+      : subscription.type !== registered.type || subscription.version !== "1" ? "event_type"
       : transport.method !== "websocket" ? "transport_mismatch" : transport.session_id !== slot.sessionId ? "session_mismatch" : null;
     if (reason) { chatDiagnostic("notification", "rejected", { reason }); return; }
     if (meta.message_type === "revocation") { chatDiagnostic("revocation", "received"); this.stop("revoked"); this.deps.revoked(); return; }

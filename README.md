@@ -1,6 +1,6 @@
 # Twitch Living Town
 
-A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-independent event simulation and Mochi, its cat-like Mayor. The original visual style remains the Town Overview. Twitch login, real chat activity and deliberate creation of persistent Supabase towns are implemented. Other community events remain simulated in an isolated demo; verified subscription ingestion is deferred.
+A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-independent event simulation and Mochi, its cat-like Mayor. The Town Overview supports Twitch login, real chat, persistent Supabase towns, verified subscriber imports and live subscription housing. Other community events remain simulated in an isolated demo.
 
 ## Run locally
 
@@ -33,7 +33,7 @@ Generate the session secret locally, then paste the output into `SESSION_SECRET`
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
 ```
 
-Restart `npm run dev` after configuring environment variables. Use **http://localhost:3000**, not `127.0.0.1` or another port: the origin and callback must match the registered redirect. Basic login requests no extra scopes. The separate **Authorize Twitch Chat** action requests only `user:read:chat`; no posting, moderation, subscription, follower or email permissions are requested.
+Restart `npm run dev` after configuring environment variables. Use **http://localhost:3000**, not `127.0.0.1` or another port: the origin and callback must match the registered redirect. Basic login requests no extra scopes. **Authorize Twitch Chat** requests `user:read:chat`; **Authorize Subscriber Housing** requests `channel:read:subscriptions`. Either upgrade retains the other permission if previously granted. No posting, moderation, subscription-management, follower or email permissions are requested.
 
 ### Manual login checklist (Chrome)
 
@@ -66,7 +66,7 @@ Auth currently requires **one continuously running Node process**. Opaque 256-bi
 
 Validation runs on login, startup re-entry, stale session reads, and a background timer every minute with a 30-minute freshness threshold, inside Twitch's hourly requirement. The owner guard forces fresh validation. Expired tokens are refreshed after Twitch rejects them, with rotated refresh tokens retained; unexpected revocation or unverifiable identity ends affected sessions. A Twitch validation outage fails closed and requires reconnection. Sign-out removes local sessions first and attempts revocation; encrypted pending revocations retry for up to an hour while the process remains running.
 
-Session/state/revocation records disappear on restart; no tokens are persisted to disk. The prototype caps active sessions at 200 and pending login attempts at 1,000. Multiple replicas, serverless suspension and durable sessions require shared storage with atomic state consumption, refresh coordination and a scheduled validation worker before deployment. Future town mutations must use `requireTownOwner` with a trusted server repository; login alone grants no administration rights. No town mutation API exists yet.
+Session/state/revocation records disappear on restart; no tokens are persisted to disk. The prototype caps active sessions at 200 and pending login attempts at 1,000. Multiple replicas, serverless suspension and durable sessions require shared storage with atomic state consumption, refresh coordination and a scheduled validation worker before deployment. Town mutations check authenticated ownership against the trusted repository; login alone grants no administration rights.
 
 For production authentication, register an **HTTPS** callback and configure `TWITCH_REDIRECT_URI` accordingly; plain HTTP is rejected in production. `npm start` over local HTTP remains useful for checking the town, but local OAuth testing should use `npm run dev`. Changing `SESSION_SECRET` requires a full process restart and invalidates sessions. Keep reverse-proxy/hosting access logs from recording callback query strings, authorization headers or token bodies. Next development callback request logging is suppressed in `next.config.ts`; infrastructure logging is configured separately.
 
@@ -124,9 +124,36 @@ Manual verification:
 8. Optional: the authenticated `/api/town` response exposes your town UUID. `GET /api/towns/<UUID>` returns its public visual projection, with no residents, owner IDs, subscriptions, gifts or private customization data. Do not share the private `/api/town` response or CSRF token.
 9. To test missing configuration, temporarily unset `SUPABASE_SECRET_KEY` locally, restart and try loading. Expect an explicit configuration error. Restore the setting and restart; the real town must load again. Database/network failure and rollback cases are covered offline by the automated tests; no failure creates a replacement town in memory.
 
-Durable writes reuse the existing processor with transaction locks, revision checks, foreign keys and unique event/plot/owner constraints. Tests use disposable embedded PostgreSQL with synthetic identities; no live subscriber ownership is fabricated. Server-only APIs support future verified-event application, resident updates and house allocation/customization storage, but **no new Twitch event types, subscriber verification or customization pages** are enabled. Layout changes require a reviewed version migration. All `living_town_*` tables are RLS-enabled and inaccessible to browser roles. Twitch sessions are authorized by Next.js; Supabase Auth is not used, and RLS does not authorize the secret-key server on behalf of a Twitch user.
+Durable writes reuse the existing processor with transaction locks, revision checks, foreign keys and unique event/plot/owner constraints. Tests use disposable embedded PostgreSQL with synthetic identities; no live subscriber ownership is fabricated. Prompt 006 connects verified subscriptions to these APIs. Customization pages and layout expansion remain deferred. All `living_town_*` tables are RLS-enabled and inaccessible to browser roles. Twitch sessions are authorized by Next.js; Supabase Auth is not used, and RLS does not authorize the secret-key server on behalf of a Twitch user.
 
 Town persistence is production-shaped but auth/EventSub still require one long-running Node process. See [limits and deployment follow-up](supabase/README.md). The original labeled local demo remains the development fallback; it is never saved into a real town.
+
+## Subscriber Housing (Prompt 006)
+
+No new environment variables or dependencies are required. Keep the six existing server variables configured. Review and manually apply **[202610280002_subscriber_housing.sql](supabase/migrations/202610280002_subscriber_housing.sql)** after migration 001, as described in [database setup](supabase/README.md). It adds verified tier/gift/evidence fields, inactive subscription evidence, and a private last-sync projection; it preserves existing towns and house identities. Do not rerun migration 001 on an existing database. Nothing applies migrations automatically.
+
+### Manual verification in Chrome
+
+1. Fully stop and restart `npm run dev` after applying migration 002. Sign in as the broadcaster and load/create **your own saved town**. Open **Subscriber Housing** below the Overview. Existing basic/chat sessions need the new permission.
+2. Select **Authorize Subscriber Housing**, approve `channel:read:subscriptions` for the same broadcaster account, and return to the town. Previously granted chat permission must remain authorized. Switching accounts or omitting a requested scope rejects the upgrade. Reconnect Chat after reauthorization because the session rotates.
+3. Select **Sync Subscribers**. The panel polls every five seconds: expect `running`, then `complete`, with imported/updated/unchanged/waitlisted/failed counts and a timestamp. Reload after completion; housing, owners and layout must remain saved. Sync again: existing memberships are unchanged, and houses/plots/customization are retained. Waitlisted is a subset of processed subscribers, not an additional import count. An unchanged subscriber may still refresh evidence/revision.
+4. Select **Connect subscription events**. Wait for **ready (4 subscriptions)**. This requires successful API confirmation of all four subscriptions, not just a WebSocket welcome. If chat is connected, both use the same socket; enabling/disabling either feature restarts the socket for the remaining subscriptions. Keep the server running. On restart or reauthorization, reconnect explicitly and synchronize to recover current membership.
+5. On an eligible channel, use a genuine subscription or gift if one occurs naturally. Individual verified recipients receive homes; the gifter receives no house merely for gifting. A gift batch triggers one gift celebration, and an API sync resolves current recipient identities. Anonymous gifts create no fake resident. Subscriber homes refresh within roughly five seconds plus network/database time. Choose **View live town** if currently viewing the demo. Existing arrival/Mayor effects are transient, so keep the town open to observe them.
+6. A resub message preserves the existing house and records available cumulative months only after an API entitlement check. A `channel.subscription.end` event makes the house **legacy** without deleting it; renewal restores active status on that same property. To check a natural expiration later, synchronize; only a complete list followed by a separate negative user lookup can mark an absent member inactive. Cancellation of automatic renewal is not necessarily subscription expiry.
+7. Check camera pan/zoom, Mayor movement, real chat counts and the separate event simulator. No simulated event reaches Supabase. After server restart, sign in and reload: all saved housing remains.
+8. For the identity foundation, sign in as a verified subscriber in a separate Chrome profile and open `/api/subscribers/house?townId=<saved-town-UUID>`. It returns that authenticated user's own house (including a retained legacy home) or `null`. Supplying a username/user ID does not select another owner. This is a read-only foundation, not a customization portal or proof of current entitlement.
+
+### Channels without subscription access and failure behavior
+
+Run `npm test`: synthetic Twitch responses and disposable PostgreSQL cover imports, pagination, scopes/channel ownership, gifts/anonymous gifts, duplicates, resubscriptions, cancellations, fixed plots/waitlisting, CSRF, own-house lookup and database failure/retry. Tests use neither `.env.local` nor a live Twitch/Supabase connection. The existing simulator remains a visual demonstration only; it cannot populate real subscriber housing. No Affiliate/Partner status, purchases, bot secrets or live events are required for these tests.
+
+If Twitch denies subscriber access, the panel reports unsupported/unavailable access or a permission error. A valid empty API list can instead complete with zero imports. An incomplete or failed sync is never labeled complete, and it never deletes homes. Imported records before a later-page failure remain saved. A run interrupted by process restart is displayed as partial; retry sync. Revoked/expired sessions require reconnection. `twitch_housing` diagnostics contain only operations, outcomes and safe categories/status codes, never chat text, tokens, identities or sensitive URLs.
+
+Live events implemented: `channel.subscribe`, `channel.subscription.end`, `channel.subscription.gift`, and `channel.subscription.message`, all version 1. They reuse the existing verified socket lifecycle and transaction processor. Temporary failed deliveries retry up to eight attempts in a bounded process-memory queue; an outage/restart can still lose events. Sync recovers current membership, not missed historical gift totals or celebrations. Twitch exposes no shared gift-batch/recipient correlation key, so batch counts and recipient ownership are reconciled separately without guessing exact membership. Repeated API/recipient events cannot create extra properties or count extra gift batches.
+
+Capacity remains **14 permanent properties per town**: two vacant plots followed by twelve unclaimed starter homes. Additional verified subscribers remain recorded and waitlisted. Legacy homes remain occupied; they are not reassigned to other users. New districts, waitlist fulfillment, a subscriber customization editor, durable event queues, distributed workers and retention jobs remain future work. Sync has safety limits of 100 records/page, 500 pages, 10,000 distinct users and ten minutes; reaching a limit reports partial progress.
+
+References: [Get Broadcaster Subscriptions](https://dev.twitch.tv/docs/api/reference/#get-broadcaster-subscriptions) and [EventSub subscription types](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/).
 
 ## Town controls
 
@@ -164,7 +191,7 @@ npm start
 
 `npm start` serves the production build at http://localhost:3000 (see the HTTPS requirement for production authentication above). Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, simulation, OAuth state/callback failures, session cookies and encryption, expiry, validation/refresh/revocation, and tenant ownership guards. No tests contact Twitch or read local credentials.
 
-Prompt 005 validation passed: lint, TypeScript, all 96 tests and production build. Tests include the actual migration in disposable PostgreSQL, concurrent allocation/rollback/RLS, mocked EventSub, auth, town generation and live/demo separation. They do not read credentials or contact Twitch/Supabase. Applying the migration to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for details.
+Tests include both migrations in disposable PostgreSQL, concurrent allocation/rollback/RLS, subscriber imports and housing lifecycle, mocked EventSub, auth, town generation and live/demo separation. They do not read credentials or contact Twitch/Supabase. Applying migration 002 to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for validation results.
 
 ## Structure
 
@@ -197,6 +224,9 @@ src/components/persistent-town.tsx Explicit town creation, reload and Mayor sett
 src/lib/persistence/               Typed Supabase repository, authorization, validation, transactions and tests
 src/app/api/town/                  Private own-town GET/create/Mayor update
 src/app/api/towns/[townId]/         Public-safe visual projection
+src/lib/subscribers/               Helix subscriber pages, verified event mapping, synchronization and delivery queue
+src/app/api/subscribers/           Own-channel housing controls/status and authenticated own-house lookup
+src/components/subscriber-housing.tsx Permission, sync, counts and live-event controls
 supabase/migrations/               Reviewed versioned PostgreSQL migration
 src/instrumentation.ts             Server startup validation/background lifecycle
 ```
@@ -207,7 +237,7 @@ The spatial layout uses a fixed connected block template. Seeds vary appearance 
 
 Next.js 16 App Router, React 19, strict TypeScript, Tailwind CSS 4, ESLint and PixiJS 8. Exact versions are captured in `package-lock.json`. The application is initialized directly in the repository root.
 
-See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat, subscription verification, distributed realtime services, management portals and the OBS overlay are deferred.
+See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat/subscriptions, distributed realtime services, management portals and the OBS overlay are deferred.
 
 Authentication references: [Twitch authorization code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow), [required token validation](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refresh](https://dev.twitch.tv/docs/authentication/refresh-tokens/), [revocation](https://dev.twitch.tv/docs/authentication/revoke-tokens/), and [Get Users](https://dev.twitch.tv/docs/api/reference/#get-users).
 

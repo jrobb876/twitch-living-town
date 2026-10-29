@@ -1,6 +1,6 @@
 import { isOpaqueToken, randomToken, safeEqual, TokenVault } from "./crypto";
 import { MemoryAuthStore, type StoredSession } from "./store";
-import { AuthError, isAuthError, CHAT_SCOPE, SESSION_TTL_MS, STATE_TTL_MS, VALIDATION_INTERVAL_MS, type AccountProfile, type AuthConfig, type OAuthTokens, type TwitchGateway, type TokenValidation } from "./types";
+import { AuthError, isAuthError, CHAT_SCOPE, SUBSCRIPTION_SCOPE, SESSION_TTL_MS, STATE_TTL_MS, VALIDATION_INTERVAL_MS, type AccountProfile, type AuthConfig, type OAuthTokens, type TwitchGateway, type TokenValidation } from "./types";
 import { authDiagnostic, type AuthOperation } from "./diagnostics";
 
 export class AuthService {
@@ -14,17 +14,19 @@ export class AuthService {
   private sessionKey(id: string) { return this.vault.digest("session", id); }
   csrfToken(id: string) { return this.vault.digest("logout-csrf", id); }
 
-  beginLogin(previousBinding?: string, chatUserId?: string) {
+  beginLogin(previousBinding?: string, chatUserId?: string, scopes = chatUserId ? [CHAT_SCOPE] : []) {
+    const requiredScopes = [...new Set(scopes)];
+    if (requiredScopes.some((scope) => ![CHAT_SCOPE, SUBSCRIPTION_SCOPE].includes(scope)) || (requiredScopes.length && !chatUserId)) throw new AuthError("forbidden");
     this.cancelLogin(previousBinding);
     for (const [key, entry] of this.store.states) if (entry.expiresAt <= this.now()) this.store.states.delete(key);
     if (this.store.states.size >= 1000) throw new AuthError("capacity");
     const state = randomToken(), binding = randomToken();
     this.store.states.set(this.vault.digest("state", state), {
-      bindingHash: this.vault.digest("binding", binding), expiresAt: this.now() + STATE_TTL_MS, chatUserId,
+      bindingHash: this.vault.digest("binding", binding), expiresAt: this.now() + STATE_TTL_MS, chatUserId, requiredScopes,
     });
     const url = new URL("https://id.twitch.tv/oauth2/authorize");
     url.search = new URLSearchParams({ client_id: this.config.clientId, redirect_uri: this.config.redirectUri,
-      response_type: "code", scope: chatUserId ? CHAT_SCOPE : "", state, force_verify: "true" }).toString();
+      response_type: "code", scope: requiredScopes.join(" "), state, force_verify: "true" }).toString();
     return { location: url.href, binding };
   }
   cancelLogin(binding?: string) {
@@ -62,7 +64,9 @@ export class AuthService {
       operation = "identity_validation";
       this.checkIdentity(validation, profile.twitchUserId);
       operation = "chat_permission";
-      if (attempt.chatUserId && (attempt.chatUserId !== profile.twitchUserId || !validation.scopes.includes(CHAT_SCOPE))) throw new AuthError("chat_scope");
+      const required = attempt.requiredScopes ?? (attempt.chatUserId ? [CHAT_SCOPE] : []);
+      if (attempt.chatUserId && (attempt.chatUserId !== profile.twitchUserId || required.some((scope) => !validation.scopes.includes(scope))))
+        throw new AuthError(required.includes(SUBSCRIPTION_SCOPE) ? "subscription_scope" : "chat_scope");
       // Keep validation work bounded for this single-process prototype.
       if (this.store.sessions.size >= 200) throw new AuthError("capacity");
       operation = "session_creation";
@@ -77,7 +81,8 @@ export class AuthService {
         this.store.sessions.delete(oldKey);
         if (old && old.tokenFingerprint !== this.vault.digest("access-token", tokens.accessToken)) this.queueRevocation(oldKey, old);
       }
-      return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS, chatRequested: !!attempt.chatUserId };
+      return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS,
+        chatRequested: required.includes(CHAT_SCOPE), housingRequested: required.includes(SUBSCRIPTION_SCOPE) };
     } catch (error) {
       authDiagnostic(operation, "failure", error);
       if (tokens) {
@@ -155,22 +160,32 @@ export class AuthService {
   }
   /** Server-only capability: never serialize its key or decrypted credentials. */
   async chatSession(id: string | undefined, forceValidation = false) {
+    const session = await this.scopedSession(id, forceValidation);
+    return { ...session, authorized: session.scopes.includes(CHAT_SCOPE) };
+  }
+  async scopedSession(id: string | undefined, forceValidation = false) {
     const profile = await this.getProfile(id, forceValidation);
     if (!profile || !id) throw new AuthError("unauthorized");
     const key = this.sessionKey(id), session = this.store.sessions.get(key);
     if (!session) throw new AuthError("unauthorized");
-    return { key, profile, authorized: session.scopes?.includes(CHAT_SCOPE) ?? false };
+    return { key, profile, scopes: [...(session.scopes ?? [])] };
   }
   chatSessionActive(key: string) {
+    return this.scopedSessionActive(key, [CHAT_SCOPE]);
+  }
+  scopedSessionActive(key: string, scopes: string[]) {
     const session = this.store.sessions.get(key);
-    return !!session && session.expiresAt > this.now() && !!session.scopes?.includes(CHAT_SCOPE);
+    return !!session && session.expiresAt > this.now() && scopes.every((scope) => session.scopes?.includes(scope));
   }
   async chatCredentials(key: string, forceValidation = false) {
+    return this.scopedCredentials(key, [CHAT_SCOPE], forceValidation);
+  }
+  async scopedCredentials(key: string, scopes: string[], forceValidation = false) {
     const profile = await this.profileByKey(key, forceValidation);
     if (!profile) throw new AuthError("unauthorized");
     const session = this.store.sessions.get(key);
     if (!session) throw new AuthError("unauthorized");
-    if (!session.scopes?.includes(CHAT_SCOPE)) throw new AuthError("chat_scope");
+    if (scopes.some((scope) => !session.scopes?.includes(scope))) throw new AuthError(scopes.includes(SUBSCRIPTION_SCOPE) ? "subscription_scope" : "chat_scope");
     return { profile, accessToken: this.vault.open(session.encryptedTokens, key).accessToken };
   }
   revokeChat(key: string) {

@@ -17,7 +17,7 @@ function failure(error: unknown) {
   return response({ error: code, message: persistenceMessages[code] }, code === "forbidden" ? 403 : code === "not_found" ? 404 : code === "conflict" ? 409 : code === "invalid_input" ? 400 : 503);
 }
 /** Read a bounded stream, including requests without Content-Length. Never log its contents. */
-async function input(request: NextRequest) {
+export async function readTownInput(request: NextRequest) {
   if (!request.headers.get("content-type")?.startsWith("application/json") || Number(request.headers.get("content-length")) > 8192) throw new PersistenceError("invalid_input");
   const reader = request.body?.getReader();
   if (!reader) throw new PersistenceError("invalid_input");
@@ -52,7 +52,7 @@ export function createTownHandlers(authService: () => AuthService, persistence: 
       try {
         if (request.method !== "POST") throw new AuthError("forbidden");
         const { profile, csrfToken } = await identity(request, true);
-        const town = await persistence().create(profile, await input(request));
+        const town = await persistence().create(profile, await readTownInput(request));
         return response({ town, csrfToken, storage: "supabase" });
       } catch (error) { return failure(error); }
     },
@@ -60,7 +60,7 @@ export function createTownHandlers(authService: () => AuthService, persistence: 
       try {
         if (request.method !== "PATCH") throw new AuthError("forbidden");
         const { profile, csrfToken } = await identity(request, true);
-        const body = parseInput(z.object({ townId: townIdSchema, revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), settings: mayorInputSchema }).strict(), await input(request));
+        const body = parseInput(z.object({ townId: townIdSchema, revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), settings: mayorInputSchema }).strict(), await readTownInput(request));
         const town = await persistence().saveMayor(profile, body.townId, body.revision, body.settings);
         return response({ town, csrfToken, storage: "supabase" });
       } catch (error) { return failure(error); }

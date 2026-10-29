@@ -20,8 +20,8 @@ export default function PersistentTown({ onTown }: { onTown: (town: StoredTown |
     }).catch(() => { if (!controller.signal.aborted) setState({ town: null, error: "unavailable", message: "Town storage could not be reached. No save was confirmed. Reload to retry." }); });
   }, [onTown]);
   useEffect(() => {
-    void refresh(); window.addEventListener("focus", refresh);
-    return () => { active.current?.abort(); window.removeEventListener("focus", refresh); };
+    void refresh(); window.addEventListener("focus", refresh); window.addEventListener("living-town:reload", refresh);
+    return () => { active.current?.abort(); window.removeEventListener("focus", refresh); window.removeEventListener("living-town:reload", refresh); };
   }, [refresh]);
   async function save(form: HTMLFormElement) {
     if (!state?.csrfToken || busy) return;

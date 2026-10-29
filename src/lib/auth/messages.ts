@@ -1,4 +1,5 @@
 export const authMessages: Record<string, string> = {
+  subscription_scope: "Authorize Subscriber Housing for this same broadcaster account, then reconnect. Twitch must grant channel:read:subscriptions.",
   chat_scope: "Chat permission was not granted for this account. Authorize user:read:chat for the same Twitch account and try again.",
   configuration: "Twitch connection is not configured. Check the server environment settings in README.md.",
   state: "This connection attempt expired or could not be verified. Please start again from Connect with Twitch.",

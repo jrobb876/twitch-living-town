@@ -4,6 +4,11 @@ import { PersistenceError } from "./types";
 
 const id = z.string().min(1).max(256);
 export const twitchId = z.string().regex(/^\d{1,30}$/);
+export const subscriptionSchema = z.object({ active: z.boolean(), tier: z.enum(["1000", "2000", "3000"]), isGift: z.boolean(),
+  verifiedAt: z.number().finite().nonnegative(), source: z.enum(["sync", "eventsub"]) }).strict();
+export const syncSchema = z.object({ id: z.uuid(), status: z.enum(["running", "complete", "partial", "failed"]), startedAt: z.number().nonnegative(), finishedAt: z.number().nonnegative().nullable(),
+  imported: z.number().int().nonnegative(), updated: z.number().int().nonnegative(), unchanged: z.number().int().nonnegative(), waitlisted: z.number().int().nonnegative(), failed: z.number().int().nonnegative(),
+  pages: z.number().int().nonnegative(), error: z.string().max(40).nullable() }).strict();
 export const townIdSchema = z.uuid();
 export const nameSchema = z.string().trim().min(1).max(60).refine((value) => !Array.from(value).some((c) => c.charCodeAt(0) < 32));
 const point = z.object({ x: z.number().finite().min(-10000).max(10000), y: z.number().finite().min(-10000).max(10000) }).strict();
@@ -29,11 +34,12 @@ const worldSchema = z.object({ schemaVersion: z.literal(1), generatorVersion: z.
   buildings: z.array(z.discriminatedUnion("kind", [z.object({ id, kind: z.literal("town-hall"), position: point }).strict(),
     z.object({ id, kind: z.literal("house"), position: point, plotId: id, ownerTwitchUserId: twitchId.nullable(), appearance: appearanceSchema, property: propertySchema.optional() }).strict()])).max(501),
   residents: z.array(z.object({ id, twitchUserId: twitchId, displayName: z.string().min(1).max(100), isFollower: z.boolean(), isSubscriber: z.boolean(),
-    subscriptionMonths: z.number().int().min(0).max(10000), houseId: id.nullable(), housingStatus: z.enum(["none", "housed", "waiting"]) }).strict()).max(10000),
+    subscriptionMonths: z.number().int().min(0).max(10000), houseId: id.nullable(), housingStatus: z.enum(["none", "housed", "waiting"]), subscription: subscriptionSchema.optional() }).strict()).max(10000),
   mayor: mayorInputSchema.extend({ id, species: z.literal("cat"), headquartersId: id }),
   processedEvents: z.array(z.unknown()).length(0),
-  giftGroups: z.array(z.object({ id: z.string().min(1).max(4096), gifter: z.object({ twitchUserId: twitchId, displayName: z.string().min(1).max(100) }).strict(),
+  giftGroups: z.array(z.object({ id: z.string().min(1).max(4096), gifter: z.object({ twitchUserId: twitchId, displayName: z.string().min(1).max(100) }).strict().nullable(),
     announcedCount: z.number().int().min(0).max(10000), recipientIds: z.array(twitchId).max(10000) }).strict()).max(10000),
+  subscriberSync: syncSchema.optional(),
 }).strict();
 export function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);

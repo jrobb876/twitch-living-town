@@ -1,0 +1,10 @@
+import { createHousingHandlers } from "@/lib/subscribers/http";
+import { getSubscriberHousing } from "@/lib/subscribers/server";
+import { getAuthService } from "@/lib/auth/server";
+import { getChatManager } from "@/lib/chat/server";
+import { getTownPersistence } from "@/lib/persistence/server";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+const handlers = createHousingHandlers(getAuthService, getSubscriberHousing, getChatManager, getTownPersistence, process.env.NODE_ENV === "production");
+export const GET = handlers.status;
+export const POST = handlers.control;

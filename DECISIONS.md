@@ -1,5 +1,18 @@
 # Technical decisions
 
+## 2026-10-28 — Verified subscriber housing (Prompt 006)
+
+1. **Reuse auth and the EventSub socket.** Deliberate same-account `channel:read:subscriptions` authorization preserves granted chat permission in both upgrade directions. Existing encrypted server tokens, validation/refresh, CSRF and ownership checks remain authoritative. Chat and all four subscription event types use one connection; readiness requires successful registration of the requested set.
+2. **Treat API/event evidence as the entitlement source.** Paginate Get Broadcaster Subscriptions with the validated owner's user token. Never infer membership from login, chat, a resub message alone, or client input. Resub messages are rechecked against current API membership. Store tier/gift status/source/time and reject stale evidence before changing membership.
+3. **Persist progress without destructive reconciliation.** Apply each record through the existing transactional processor. Record running/complete/partial/failed summaries; a failed page cannot end absent memberships. A full traversal still requires a targeted negative lookup before marking a missing subscriber inactive. This is not an atomic Twitch snapshot. Sync limits fail explicitly with saved progress.
+4. **Retain permanent property identity.** One house per recipient per town. Renewals reuse the same house, plot, appearance and customization. End events retain legacy properties. Membership verification timestamps and known cumulative months are separate; initial imports do not invent tenure. Own-house lookup uses authenticated stable IDs, not submitted usernames.
+5. **Do not invent gift correlations.** Twitch documents no shared batch/recipient ID. A gift delivery ID identifies one aggregate celebration/count, while recipient events and API sync independently reconcile ownership without adding batch totals. Anonymous gifter is null. No gifter receives housing merely for making a gift. Exact per-batch recipient attribution and missing historical gift recovery remain unavailable.
+6. **Keep deterministic capacity for now.** The existing two vacant plots plus twelve starter homes provide fourteen stable properties. Saved geometry is immutable in v1; reliable district expansion needs a separate generator/database change. Additional verified members remain waitlisted, and legacy plots are never recycled silently.
+7. **Migrate additively and test offline.** Migration 002 adds subscription evidence, inactive status and a private last-sync projection, replacing only the existing projection helper. RLS, limited RPC grants and commit constraints remain. Apply manually after 001; tests apply both to disposable PostgreSQL. No real credentials or memberships are used by tests.
+8. **Keep delivery limitations explicit.** Database changes and delivery receipts are atomic; process-local retries are bounded and can be lost on restart. Re-sync restores current membership, not historical events. Existing effects/Mayor tasks are transient owner-view presentation. Shared durable workers/queues and retention are future work. The Mayor remains the companion and the renderer is unchanged.
+
+Earlier decisions below describe their original milestone; this section supersedes their deferred subscription integration and true-or-unknown-only status limitations.
+
 ## 2026-10-28 — Persistent towns (Prompt 005)
 
 1. **Reuse TownWorld and the existing processor.** The database's versioned JSON snapshot is canonical. Relational users, Mayor, district, plot, house and resident projections provide constraints/indexes and update within the same transaction. There is no second simulation. Movement, effects and chat activity remain in memory.

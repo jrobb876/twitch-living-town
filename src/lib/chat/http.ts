@@ -5,6 +5,7 @@ import type { AuthService } from "../auth/service";
 import { AuthError, isAuthError, STATE_TTL_MS } from "../auth/types";
 import { authDiagnostic } from "../auth/diagnostics";
 import type { ChatManager } from "./manager";
+import { CHAT_SCOPE, SUBSCRIPTION_SCOPE } from "../auth/types";
 
 function privateResponse(response: NextResponse) {
   response.headers.set("Cache-Control", "private, no-store, max-age=0");
@@ -37,7 +38,8 @@ export function createChatHandlers(authService: () => AuthService, chatManager: 
       authDiagnostic("chat_authorize", "start");
       try {
         const { auth, grant } = await control(request);
-        const login = auth.beginLogin(request.cookies.get(names.state)?.value, grant.profile.twitchUserId);
+        const login = auth.beginLogin(request.cookies.get(names.state)?.value, grant.profile.twitchUserId,
+          [CHAT_SCOPE, ...grant.scopes.filter((scope) => scope === SUBSCRIPTION_SCOPE)]);
         // JS navigates to this public OAuth URL; it contains no user tokens or client secret.
         const response = privateResponse(NextResponse.json({ location: login.location }));
         response.cookies.set(names.state, login.binding, cookieOptions(production, STATE_TTL_MS / 1000));

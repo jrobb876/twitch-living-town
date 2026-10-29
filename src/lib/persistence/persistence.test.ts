@@ -17,11 +17,20 @@ import { createLiveView, projectLiveActivity } from "../chat/projection";
 import { chatMessage, NOW } from "../chat/test-fixtures";
 import { LiveChatFeed } from "../chat/feed";
 import { validateWorld } from "./validation";
+import { CHAT_SCOPE, SUBSCRIPTION_SCOPE } from "../auth/types";
+import { ChatManager } from "../chat/manager";
+import { createChatHandlers } from "../chat/http";
+import { SubscriberHousingService } from "../subscribers/service";
+import { createHousingHandlers } from "../subscribers/http";
+import { TwitchSubscriptions } from "../subscribers/twitch";
+import { HousingError, type VerifiedSubscriber } from "../subscribers/types";
+import { subscriber, housingNotification } from "../subscribers/test-fixtures";
 
 const db = new PGlite();
 before(async () => {
   await db.exec("create role anon; create role authenticated; create role service_role;");
   await db.exec(await readFile("supabase/migrations/202610280001_persistent_towns.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/202610280002_subscriber_housing.sql", "utf8"));
 });
 after(async () => { await db.close(); });
 // Actual PostgreSQL transactions/constraints; no network, env credentials or live DB.
@@ -214,4 +223,170 @@ test("live chat projects onto saved layout without writes; demo events never bec
   await assert.rejects(service.applyVerifiedEvent({ source: "simulated" as "twitch_verified", event: event(town.world.id) }), code("invalid_input"));
   await assert.rejects(service.applyVerifiedEvent({ source: "twitch_verified", event: { ...event(town.world.id), townId: "demo-willowbrook" } }), code("invalid_input"));
   assert.equal(JSON.stringify(await service.mine(owner)), before);
+});
+
+async function housingSetup(persistence = service) {
+  const f = fixture(), owner = profile(); f.twitch.identity = owner; f.twitch.validation.userId = owner.twitchUserId;
+  f.twitch.validation.scopes = [CHAT_SCOPE, SUBSCRIPTION_SCOPE];
+  const login = await f.login(), town = await persistence.create(owner, { name: "Subscriber town", mayorName: "Mochi", seed: 42 });
+  let clock = NOW, pages: VerifiedSubscriber[][] = [[subscriber()]], failPage = -1;
+  const api = new TwitchSubscriptions("synthetic-client");
+  api.page = async (_, broadcaster, cursor, userId) => {
+    assert.equal(broadcaster, owner.twitchUserId);
+    if (userId) return { subscribers: pages.flat().filter((user) => user.twitchUserId === userId) };
+    const page = Number(cursor ?? 0); if (page === failPage) throw new HousingError("unavailable");
+    return { subscribers: pages[page] ?? [], cursor: page + 1 < pages.length ? String(page + 1) : undefined };
+  };
+  const housing = new SubscriberHousingService(f.service, () => persistence, api, () => clock);
+  const grant = await housing.grant(login.id);
+  const sync = async () => { await housing.startSync(grant); await housing.waitForSync(owner.twitchUserId); return housing.status(owner); };
+  return { f, owner, login, town, api, housing, grant, sync,
+    setPages(value: VerifiedSubscriber[][], fail = -1) { pages = value; failPage = fail; clock++; },
+    advance(ms: number) { clock += ms; }, now: () => clock,
+    async drain() {
+      for (let i = 0; i < 1000; i++) {
+        if (!(await housing.status(owner)).pendingEvents) { await housing.waitForSync(owner.twitchUserId); return; }
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      assert.fail("Housing queue did not drain");
+    },
+  };
+}
+
+test("paged verified import, unchanged sync, customization and plot identity survive reload", async () => {
+  const h = await housingSetup(); h.setPages([[subscriber("777"), subscriber("778")], [subscriber("777"), subscriber("779")]]);
+  let status = await h.sync();
+  assert.equal(status.lastSync?.status, "complete"); assert.equal(status.lastSync?.pages, 2);
+  assert.equal(status.lastSync?.imported, 3); assert.equal(status.active, 3);
+  const loaded = (await service.mine(h.owner))!, home = await service.ownHouse({ ...profile(), twitchUserId: "777" }, loaded.world.id);
+  assert.ok(home);
+  await service.updateHouse(h.owner, loaded.world.id, home.id, loaded.revision, { customization: { sign: "Kept" } });
+  h.setPages([[subscriber("777"), subscriber("778")], [subscriber("779")]]);
+  status = await h.sync(); assert.equal(status.lastSync?.unchanged, 3); assert.equal(status.lastSync?.imported, 0);
+  const after = (await service.mine(h.owner))!;
+  const kept = housesIn(after.world).find((house) => house.id === home.id)!;
+  assert.equal(kept.property?.customization.sign, "Kept"); assert.equal(kept.plotId, home.plotId);
+  assert.deepEqual(kept.position, home.position); assert.deepEqual(kept.appearance, home.appearance);
+  assert.deepEqual(after.world.layout, h.town.world.layout); assert.equal(after.world.residents[0].subscriptionMonths, 0);
+  const fresh = new SubscriberHousingService(h.f.service, () => service, h.api, h.now);
+  assert.equal((await fresh.status(h.owner)).lastSync?.status, "complete");
+  const evidence = await db.query<{ subscription_tier: string; subscriber_status: boolean; evidence_source: string }>("select subscription_tier,subscriber_status,evidence_source from public.living_town_residents where town_id=$1 and twitch_user_id='777'", [after.world.id]);
+  assert.deepEqual(evidence.rows[0], { subscription_tier: "1000", subscriber_status: true, evidence_source: "sync" });
+  assert.equal((await db.query("select summary from public.living_town_subscriber_syncs where town_id=$1", [after.world.id])).rows.length, 1);
+});
+
+test("failed/partial pages retain properties; only a full sync plus direct absence marks legacy", async () => {
+  const h = await housingSetup(); await h.sync();
+  h.setPages([[subscriber("778")], []], 1);
+  const partial = await h.sync(); assert.equal(partial.lastSync?.status, "partial"); assert.equal(partial.active, 2); assert.equal(partial.legacy, 0);
+  h.setPages([[]], 0); assert.equal((await h.sync()).lastSync?.status, "failed");
+  h.setPages([[subscriber("778")]]); const complete = await h.sync();
+  assert.equal(complete.lastSync?.status, "complete"); assert.equal(complete.active, 1); assert.equal(complete.legacy, 1);
+  const retained = await service.ownHouse({ ...profile(), twitchUserId: "777" }, h.town.world.id);
+  assert.equal(retained?.property?.status, "legacy");
+  h.setPages([[subscriber("777"), subscriber("778")]]); await h.sync();
+  const renewed = await service.ownHouse({ ...profile(), twitchUserId: "777" }, h.town.world.id);
+  assert.equal(renewed?.id, retained?.id); assert.equal(renewed?.property?.status, "verified_subscriber");
+});
+
+test("full towns waitlist verified subscribers without moving houses or taking legacy properties", async () => {
+  const h = await housingSetup(), users = Array.from({ length: 16 }, (_, i) => subscriber(String(700 + i)));
+  h.setPages([users]); const first = await h.sync();
+  assert.equal(first.verifiedHouses, 14); assert.equal(first.waitlisted, 2); assert.equal(first.lastSync?.waitlisted, 2); assert.equal(first.availablePlots, 0);
+  const before = (await service.mine(h.owner))!;
+  h.setPages([users.slice(1)]); const next = await h.sync();
+  assert.equal(next.legacy, 1); assert.equal(next.waitlisted, 2); assert.equal(next.verifiedHouses, 14);
+  const after = (await service.mine(h.owner))!;
+  assert.deepEqual(after.world.layout, before.world.layout); assert.deepEqual(after.world.districts, before.world.districts); assert.deepEqual(after.world.plots, before.world.plots);
+  assert.deepEqual(housesIn(after.world).map((v) => [v.id,v.ownerTwitchUserId,v.position]), housesIn(before.world).map((v) => [v.id,v.ownerTwitchUserId,v.position]));
+  assert.equal(after.world.residents.length, 16);
+});
+
+test("gift aggregate celebrates once; verified recipients, API sync and duplicate deliveries share one house", async () => {
+  const h = await housingSetup(); h.setPages([[{ ...subscriber(), isGift: true }]]);
+  const gift = housingNotification("channel.subscription.gift", h.owner.twitchUserId, "anonymous-batch", h.now());
+  gift.payload.event.is_anonymous = true; Object.assign(gift.payload.event, { user_id: null, user_name: null });
+  h.housing.enqueue(h.owner, h.grant.key, gift); await h.drain();
+  h.housing.enqueue(h.owner, h.grant.key, gift); await h.drain();
+  const recipient = housingNotification("channel.subscribe", h.owner.twitchUserId, "recipient", h.now()); recipient.payload.event.is_gift = true;
+  h.housing.enqueue(h.owner, h.grant.key, recipient); await h.drain();
+  h.housing.enqueue(h.owner, h.grant.key, recipient); await h.drain(); await h.sync();
+  const loaded = (await service.mine(h.owner))!;
+  assert.equal(loaded.world.residents.length, 1); assert.equal(loaded.world.residents[0].twitchUserId, "777");
+  assert.equal(housesIn(loaded.world).filter((house) => house.ownerTwitchUserId).length, 1);
+  assert.equal(loaded.world.giftGroups.length, 1); assert.equal(loaded.world.giftGroups[0].gifter, null);
+  assert.equal(loaded.world.giftGroups[0].announcedCount, 3); assert.deepEqual(loaded.world.giftGroups[0].recipientIds, []);
+  assert.equal((await h.housing.status(h.owner)).presentations.filter((p) => p.effects.some((e) => e.kind === "gift")).length, 1);
+});
+
+test("resub message rechecks entitlement; cancellation retains customization and stale evidence cannot reactivate", async () => {
+  const h = await housingSetup(); await h.sync();
+  let saved = (await service.mine(h.owner))!; const home = housesIn(saved.world).find((v) => v.ownerTwitchUserId === "777")!;
+  await service.updateHouse(h.owner, saved.world.id, home.id, saved.revision, { customization: { sign: "Permanent" } });
+  h.advance(10);
+  const resub = housingNotification("channel.subscription.message", h.owner.twitchUserId, "resub", h.now());
+  h.housing.enqueue(h.owner, h.grant.key, resub); await h.drain();
+  saved = (await service.mine(h.owner))!; assert.equal(saved.world.residents[0].subscriptionMonths, 7); assert.equal(saved.world.residents[0].houseId, home.id);
+  h.advance(10);
+  const ended = housingNotification("channel.subscription.end", h.owner.twitchUserId, "ended", h.now());
+  h.housing.enqueue(h.owner, h.grant.key, ended); await h.drain();
+  const stale = housingNotification("channel.subscribe", h.owner.twitchUserId, "delayed-subscribe", NOW);
+  h.housing.enqueue(h.owner, h.grant.key, stale); await h.drain();
+  h.setPages([[]]); resub.metadata.message_id = "resub-without-membership"; resub.metadata.message_timestamp = new Date(h.now()).toISOString();
+  h.housing.enqueue(h.owner, h.grant.key, resub); await h.drain();
+  saved = (await service.mine(h.owner))!;
+  assert.equal(saved.world.residents[0].isSubscriber, false);
+  const legacy = housesIn(saved.world).find((v) => v.id === home.id)!;
+  assert.equal(legacy.property?.status, "legacy"); assert.equal(legacy.property?.customization.sign, "Permanent");
+  assert.equal((await db.query<{ subscriber_status: boolean }>("select subscriber_status from public.living_town_residents where town_id=$1", [saved.world.id])).rows[0].subscriber_status, false);
+});
+
+test("housing controls enforce session/channel/CSRF and viewer lookup returns only the authenticated owner's house", async () => {
+  const h = await housingSetup(); await h.sync();
+  const manager = new ChatManager(h.f.service), handlers = createHousingHandlers(() => h.f.service, () => h.housing, () => manager, () => service, false);
+  const request = (action?: unknown, headers: Record<string,string> = {}, query = "") => new NextRequest(`http://localhost:3000/api/subscribers${query}`, {
+    method: action ? "POST" : "GET", headers: { cookie: `${cookieNames(false).session}=${h.login.id}`, origin: "http://localhost:3000", "content-type": "application/json", "x-csrf-token": h.f.service.csrfToken(h.login.id), ...headers },
+    ...(action ? { body: JSON.stringify(action) } : {}),
+  });
+  assert.equal((await handlers.control(request({ action: "sync" }, { cookie: "" }))).status, 401);
+  assert.equal((await handlers.control(request({ action: "sync" }, { "x-csrf-token": "wrong" }))).status, 403);
+  assert.equal((await handlers.control(request({ action: "sync" }, { origin: "https://evil.example" }))).status, 403);
+  assert.equal((await handlers.control(request({ action: "sync", broadcasterId: "999" }))).status, 400);
+  const authorized = await handlers.control(request({ action: "authorize" }));
+  assert.deepEqual(new Set(new URL((await authorized.json()).location).searchParams.get("scope")!.split(" ")), new Set([SUBSCRIPTION_SCOPE, CHAT_SCOPE]));
+  const chat = createChatHandlers(() => h.f.service, () => manager, false);
+  const upgraded = await chat.authorize(request({}));
+  assert.deepEqual(new Set(new URL((await upgraded.json()).location).searchParams.get("scope")!.split(" ")), new Set([SUBSCRIPTION_SCOPE, CHAT_SCOPE]));
+  assert.equal((await (await handlers.house(request(undefined, {}, `/house?townId=${h.town.world.id}&userId=777`))).json()).house, null);
+  const viewer = { ...profile(), twitchUserId: "777" };
+  assert.equal((await service.ownHouse(viewer, h.town.world.id))?.ownerTwitchUserId, "777");
+  await assert.rejects(service.owned(viewer, h.town.world.id), code("forbidden"));
+  const down = createHousingHandlers(() => h.f.service, () => { throw new PersistenceError("unavailable"); }, () => manager, () => service, false);
+  assert.equal((await down.status(request())).status, 503);
+  h.f.twitch.validation.scopes = []; await h.f.service.scopedSession(h.login.id, true);
+  assert.equal((await handlers.control(request({ action: "sync" }))).status, 403);
+  manager.dispose();
+});
+
+test("failed durable delivery retries transactionally, and failed sync never claims completion", async () => {
+  let failWrites = false;
+  const persistence = new TownPersistenceService(new SupabaseTownRepository(async (name, args) => {
+    if (failWrites && name === "living_town_commit") return { data: null, error: { code: "XX000" } };
+    return rpc(name, args);
+  }));
+  const h = await housingSetup(persistence); failWrites = true;
+  assert.equal((await h.sync()).lastSync?.status, "failed");
+  const input = housingNotification("channel.subscribe", h.owner.twitchUserId, "retry-after-db-failure", h.now());
+  h.housing.enqueue(h.owner, h.grant.key, input);
+  for (let i = 0; i < 100; i++) {
+    if ((await h.housing.status(h.owner)).deliveryError) break;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  assert.equal((await h.housing.status(h.owner)).deliveryError, "unavailable");
+  assert.equal((await persistence.mine(h.owner))?.world.residents.length, 0);
+  failWrites = false; h.advance(3000); h.housing.tick(); await h.drain();
+  assert.equal((await h.housing.status(h.owner)).active, 1);
+  assert.equal((await h.housing.status(h.owner)).deliveryError, null);
+  h.housing.enqueue(h.owner, h.grant.key, input); await h.drain();
+  assert.equal((await persistence.mine(h.owner))?.world.residents.length, 1);
 });

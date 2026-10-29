@@ -13,6 +13,8 @@ import type { ChatSnapshot } from "@/lib/chat/types";
 import type { TownSession } from "@/lib/simulation/types";
 import type { StoredTown } from "@/lib/persistence/types";
 import PersistentTown from "./persistent-town";
+import SubscriberHousing from "./subscriber-housing";
+import type { HousingPresentation } from "@/lib/subscribers/types";
 
 const EventSimulator = dynamic(() => import("./event-simulator"), { ssr: false });
 
@@ -55,6 +57,16 @@ export default function TownExperience({ enableSimulator = false }: { enableSimu
 function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRegenerate, savedTown, onTown }: { seed: number; enableSimulator: boolean; mode: "live" | "simulated"; setMode: (mode: "live" | "simulated") => void; onReset: () => void; onRegenerate: (seed: number) => void; savedTown: StoredTown | null; onTown: (town: StoredTown | null) => void }) {
   const [demoSession, setSession] = useState(() => createSession(createWorld({ id: "demo-willowbrook", streamerTwitchUserId: "sim-streamer", seed, name: townName, mayorName })));
   const [liveSession, setLiveSession] = useState<TownSession | null>(null);
+  const receivePresentation = useCallback((presentation: HousingPresentation) => {
+    setLiveSession((current) => {
+      if (!current || current.world.id !== presentation.townId) return current;
+      const now = current.runtime.now;
+      return { ...current, runtime: { ...current.runtime,
+        effects: [...current.runtime.effects, ...presentation.effects.map((effect) => ({ ...effect, startedAt: now, expiresAt: now + 12000 }))].slice(-32),
+        mayor: { ...current.runtime.mayor, behavior: presentation.tasks.length ? "approaching" : current.runtime.mayor.behavior,
+          tasks: [...current.runtime.mayor.tasks, ...presentation.tasks.map((task) => ({ ...task, expiresAt: now + 120000 }))].slice(-16) } } };
+    });
+  }, []);
   const receiveSnapshot = useCallback((snapshot: ChatSnapshot | null) => {
     if (!snapshot) { setLiveSession(null); setMode("simulated"); return; }
     const saved = savedTown?.world.streamerTwitchUserId === snapshot.channel.twitchUserId ? savedTown.world : undefined;
@@ -96,6 +108,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
           <button className="primary-button regenerate" disabled={persistentView} title={persistentView ? "Saved layouts stay fixed. Switch to the simulated town to regenerate the demo." : undefined} onClick={regenerate}><span aria-hidden="true">⟳</span> Regenerate town</button>
         </section>
         <PersistentTown onTown={onTown} />
+        <SubscriberHousing onPresentation={receivePresentation} />
         <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} />
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">

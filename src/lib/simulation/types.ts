@@ -23,13 +23,18 @@ export type HouseBuilding = Extract<Building, { kind: "house" }>;
 export type Resident = TwitchIdentity & {
   id: string; isFollower: boolean; isSubscriber: boolean; subscriptionMonths: number;
   houseId: string | null; housingStatus: "none" | "housed" | "waiting";
+  subscription?: SubscriptionEvidence;
 };
+export type SubscriptionEvidence = { active: boolean; tier: "1000" | "2000" | "3000"; isGift: boolean; verifiedAt: number; source: "sync" | "eventsub" };
+export type SubscriberSync = { id: string; status: "running" | "complete" | "partial" | "failed"; startedAt: number; finishedAt: number | null;
+  imported: number; updated: number; unchanged: number; waitlisted: number; failed: number; pages: number; error: string | null };
 export type TownEvent = { id: string; townId: string; occurredAt: number } & (
   | { type: "CHAT_MESSAGE"; user: TwitchIdentity; message: string }
   | { type: "NEW_FOLLOWER"; user: TwitchIdentity }
-  | { type: "NEW_SUBSCRIBER"; user: TwitchIdentity; gift?: { groupId: string; gifter: TwitchIdentity } }
-  | { type: "RESUBSCRIPTION"; user: TwitchIdentity; cumulativeMonths: number }
-  | { type: "GIFT_SUBSCRIPTION"; groupId: string; gifter: TwitchIdentity; total: number; recipients: TwitchIdentity[] }
+  | { type: "NEW_SUBSCRIBER"; user: TwitchIdentity; subscription?: SubscriptionEvidence; gift?: { groupId: string; gifter: TwitchIdentity } }
+  | { type: "RESUBSCRIPTION"; user: TwitchIdentity; cumulativeMonths: number; subscription?: SubscriptionEvidence }
+  | { type: "SUBSCRIPTION_ENDED"; user: TwitchIdentity; subscription: SubscriptionEvidence }
+  | { type: "GIFT_SUBSCRIPTION"; groupId: string; gifter: TwitchIdentity | null; total: number; recipients: TwitchIdentity[] }
   | { type: "INCOMING_RAID"; raider: TwitchIdentity; viewers: number }
 );
 export type EventOutcome = {
@@ -37,7 +42,7 @@ export type EventOutcome = {
   message: string; houseIds: string[]; residentIds: string[];
 };
 export type GiftGroup = {
-  id: string; gifter: TwitchIdentity; announcedCount: number; recipientIds: string[];
+  id: string; gifter: TwitchIdentity | null; announcedCount: number; recipientIds: string[];
 };
 /** JSON-safe durable snapshot; runtime movement/activity is stored separately. */
 export type TownWorld = {
@@ -49,6 +54,7 @@ export type TownWorld = {
   mayor: { id: string; name: string; species: "cat"; headquartersId: string;
     appearance?: { preset: "default" }; personality?: { curiosity: number; energy: number } };
   processedEvents: EventOutcome[]; giftGroups: GiftGroup[];
+  subscriberSync?: SubscriberSync;
 };
 export type TownEffect = {
   id: string; kind: "arrival" | "housewarming" | "welcome-back" | "gift" | "raid";

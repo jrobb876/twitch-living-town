@@ -1,6 +1,6 @@
 import type { AccountProfile } from "./types";
 
-export type PendingLogin = { bindingHash: string; expiresAt: number; chatUserId?: string };
+export type PendingLogin = { bindingHash: string; expiresAt: number; chatUserId?: string; requiredScopes?: string[] };
 export type StoredSession = {
   profile: AccountProfile; encryptedTokens: string; tokenFingerprint: string; scopes: string[];
   expiresAt: number; tokenExpiresAt: number; validatedAt: number;
