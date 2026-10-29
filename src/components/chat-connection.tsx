@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { authMessages } from "@/lib/auth/messages";
 import type { ChatSnapshot } from "@/lib/chat/types";
 
-type Props = { mode: "live" | "simulated"; onMode: (mode: "live" | "simulated") => void; onSnapshot: (snapshot: ChatSnapshot | null) => void; hasSavedTown?: boolean };
-export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown = false }: Props) {
+type Props = { mode: "live" | "simulated"; onMode: (mode: "live" | "simulated") => void; onSnapshot: (snapshot: ChatSnapshot | null) => void; hasSavedTown?: boolean; showSourceControls?: boolean };
+export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown = false, showSourceControls = true }: Props) {
   const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -46,7 +46,7 @@ export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown 
     finally { setBusy(false); }
   }
   return <section className="chat-connection" aria-label="Twitch chat connection">
-    <div className="chat-connection-title"><strong>Twitch chat</strong><span className="chat-mode">{mode === "live" ? "LIVE SOURCE" : "SIMULATED"}</span></div>
+    <div className="chat-connection-title"><strong>Twitch chat</strong><span className="chat-mode">{showSourceControls ? mode === "live" ? "LIVE SOURCE" : "SIMULATED" : "YOUR CHANNEL"}</span></div>
     {snapshot ? <>
       <p>Channel: <strong>{snapshot.channel.displayName}</strong> (@{snapshot.channel.login}) · Chat permission: {snapshot.authorized ? "authorized" : "not granted"}</p>
       <p role="status">EventSub: <strong>{snapshot.status}</strong> · Last event: {snapshot.lastEventAt ? new Date(snapshot.lastEventAt).toLocaleTimeString() : "waiting for chat"} · {snapshot.receivedMessages} messages received</p>
@@ -55,8 +55,8 @@ export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown 
         {!snapshot.authorized ? <button className="account-button" disabled={busy} onClick={() => void control("authorize")}>Authorize Twitch Chat</button>
           : <><button className="account-button" disabled={busy || ["connected", "connecting", "reconnecting"].includes(snapshot.status)} onClick={() => void control("start")}>{snapshot.status === "disconnected" ? "Connect Chat" : "Reconnect Chat"}</button>
             <button className="account-button" disabled={busy || snapshot.status === "disconnected"} onClick={() => void control("stop")}>Disconnect Chat</button></>}
-        <button className="account-button" disabled={(!snapshot.authorized && !hasSavedTown) || mode === "live"} onClick={() => onMode("live")}>View live town</button>
-        <button className="account-button" disabled={mode === "simulated"} onClick={() => onMode("simulated")}>View simulated town</button>
+        {showSourceControls && <><button className="account-button" disabled={(!snapshot.authorized && !hasSavedTown) || mode === "live"} onClick={() => onMode("live")}>View live town</button>
+        <button className="account-button" disabled={mode === "simulated"} onClick={() => onMode("simulated")}>View simulated town</button></>}
       </div>
       <p className="chat-note">Only your own channel can connect. Live and simulated activity stay separate. Ambient townspeople are scenery, not followers or subscribers.</p>
     </> : <p><Link href="/account">Connect your Twitch account</Link> to authorize chat for your own channel.</p>}

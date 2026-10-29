@@ -116,8 +116,8 @@ Manual verification:
 
 1. Fully restart `npm run dev`, open `http://localhost:3000` and sign in using Twitch. Return to the town. **Your town** performs a database read; login or a page visit does not create a town.
 2. Select **Reload saved town**. If no town exists, the panel offers **Create my town**, confirming the migration and database API are reachable. The authenticated `GET /api/town` should return HTTP 200 with `storage: "supabase"`, `town: null`. Missing configuration/schema or an outage returns a clear error. The labeled demo remains available; no production save falls back to memory.
-3. Enter town and Mayor names and select **Create my town**. Wait for **Saved to Supabase** and **SAVED IN SUPABASE**. The Overview displays the saved name, Mayor and seed. Twelve unclaimed starter houses are scenery, not proof of subscribers. Repeated creation requests return the same town.
-4. Change the Mayor name and select **Save Mayor name**. Reload the page, navigate through `/account`, then restart the Node server and sign in again. The town UUID, seed, buildings, plot coordinates and Mayor name must remain the same. OAuth sessions and temporary chat activity reset on server restart.
+3. Follow **Create my town** into the onboarding wizard: choose a town name, Mayor look/name and personality, review, then explicitly create. You arrive at the Streamer Dashboard. Twelve unclaimed starter houses are scenery, not proof of subscribers. Repeated creation requests return the same town.
+4. In **My town → Streamer Dashboard**, edit the town or Mayor and select **Save settings**. Reload the page, navigate through `/account`, then restart the Node server and sign in again. The town UUID, seed, buildings, plot coordinates and settings must remain the same. OAuth sessions and temporary chat activity reset on server restart.
 5. Authorize/connect chat as before. Send a message and confirm the activity meter/counter and Mayor movement. In Supabase, the town revision and processed-event row count should **not** change because of chat, movement or polling.
 6. Select **View simulated town**, run subscribers/gifts/raids, regenerate or reset the demo. Return to **View live town**: the saved town is unchanged. Regeneration is intentionally disabled while viewing a saved town. Check existing camera pan/zoom and Mayor animation manually.
 7. Sign in with another Twitch account (for simultaneous testing use a separate Chrome profile). It has no town until deliberately created, and gets an independent UUID/layout. It cannot update the first account's town. A viewer can own a separate town without gaining access to anyone else's town.
@@ -292,7 +292,39 @@ At most 24 resident actors animate; paths use cached node maps. Offscreen homes,
 
 Next.js 16 App Router, React 19, strict TypeScript, Tailwind CSS 4, ESLint and PixiJS 8. Exact versions are captured in `package-lock.json`. The application is initialized directly in the repository root.
 
-See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat/subscriptions, distributed realtime services, management portals and the OBS overlay are deferred.
+See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat/subscriptions, distributed realtime services, advanced management tools and the OBS overlay are deferred.
+
+## Streamer onboarding and dashboard (Prompt 009)
+
+**No new migration, environment variables, dependencies or Twitch scopes.** Existing migrations 001–004 already store Mayor appearance/personality as JSON and allow revision-checked town names/settings. This milestone does not access or modify your live database automatically.
+
+After signing in, select **My town**. `/dashboard` loads only the authenticated user's owned town. Users without a town are redirected to `/onboarding`; existing owners opening onboarding are sent back to the dashboard. Signing in or visiting either page does not create a town. The wizard introduces the community and Mayor, previews the current environment, collects choices, then shows a review screen. Only **Create my town** performs the authenticated server write. Chat/subscriber permissions are optional and can be authorized afterward through the existing panels.
+
+Willowbrook and Mochito are retained as saved: no recreation, seed change or house movement. Missing/legacy `default` appearance renders as the original cream cat. Older numeric personality settings remain unchanged and appear as **Existing personality** until a new preset is deliberately selected. Renaming alone does not rewrite those values.
+
+| Mayor option | Current implementation |
+| --- | --- |
+| Cream, orange tabby, gray, dark | Coordinated local SVG previews and matching procedural PixiJS colors; orange has forehead stripes. |
+| Playful | More stroll decisions toward the plaza and shorter idle pauses. |
+| Curious | More stroll decisions toward nearby residential doorsteps. |
+| Calm | Longer idle pauses, with occasional walks toward Town Hall. |
+| Mischievous | More direction reversals and occasional exploratory doorstep choices. |
+
+Personality decisions are seeded and tested; they do not change travel speed. Community event tasks take priority. Naps, construction inspections, mischief interactions and richer animation are not implemented. Legacy personalities retain their earlier behavior.
+
+The dashboard includes a saved-town preview, population, active verified subscriber homes, total plots, town/Mayor settings, and the existing chat/housing controls. The preview shows saved settings and autonomous movement; use **Town Overview** for live chat activity and celebrations. No Twitch token or Supabase secret is sent to the browser. Settings use `PATCH /api/town/settings`, session-derived ownership, origin/CSRF checks, strict validation and the existing transaction revision. House ownership, customization, roads/districts, seed and event receipts are preserved. A conflict keeps the draft visible; **Reload saved settings** explicitly discards it and loads the latest revision. Status polling never silently overwrites an edit draft.
+
+### Manual verification
+
+1. Run `npm run dev`, open http://localhost:3000, sign in and select **My town**. With the existing owner, expect Willowbrook/Mochito on `/dashboard`. Opening `/onboarding` should redirect back without creating anything.
+2. With an authenticated account that has no town (prefer a development database), open `/onboarding`. Try Back/Next, an empty name, the four Mayor cards and four personalities. Nothing persists before the final **Create my town** action. Basic login alone must suffice.
+3. Create after reviewing. Confirm the dashboard shows the chosen names, Mayor colors and starting counts. Reload and revisit onboarding; it must retain the same town and bypass the wizard. Do not delete a production town to repeat this test.
+4. Save a town rename, Mayor rename, appearance and personality. Confirm the success message and preview, then open the Overview and reload. Check the in-world Mayor and portrait, streets, houses, customizations, camera and saved seed.
+5. Open dashboard settings in two tabs. Save in the first, then save an edit based on the old revision in the second: expect a conflict with its draft retained. Use **Reload saved settings** before editing again. Live subscriber updates may also cause legitimate conflicts.
+6. Sign out, then visit `/dashboard`: expect `/account`, with no owner dashboard. Another user can access only their own town/onboarding. Check **My Houses**, chat authorization/connection and subscriber sync still work from the reused panels.
+7. In the isolated Overview demo, exercise events and regeneration. Return to the dashboard: the saved town must be unchanged. Check mobile widths and keyboard navigation through steps, radio cards and camera controls manually.
+
+Wizard drafts are not saved across reloads. Dashboard status refreshes on focus, housing changes and a 20-second timer; appearance changes in another open Overview may need focus/reload. Auth/EventSub still need one long-running Node process. No automated browser interaction or visual inspection was performed.
 
 Authentication references: [Twitch authorization code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow), [required token validation](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refresh](https://dev.twitch.tv/docs/authentication/refresh-tokens/), [revocation](https://dev.twitch.tv/docs/authentication/revoke-tokens/), and [Get Users](https://dev.twitch.tv/docs/api/reference/#get-users).
 

@@ -1,5 +1,22 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 009 — Streamer onboarding, Mayor selection and dashboard
+
+- [x] Inspect installed Next.js guides, auth/ownership, persistent creation, Mayor model, renderer and existing controls.
+- [x] Server-protected owner routing: first-time wizard, existing-town bypass and no automatic town creation.
+- [x] Four-step onboarding with sample environment, Mayor cards, personality choices, review, validation and explicit creation.
+- [x] Cream, orange tabby, gray and dark procedural Mayor presets shared across portraits and the actual Overview renderer.
+- [x] Deterministic personality-biased strolls and idle pauses; event tasks retain priority and movement speed remains unchanged.
+- [x] Owner dashboard with saved-town preview, counts, connection/sync panels, links and settings.
+- [x] Authenticated/CSRF-protected town/Mayor updates, revision conflict handling and preserved geometry, houses, customizations and event receipts.
+- [x] Compatibility for Willowbrook/Mochito, legacy appearance and numeric/missing personality settings; no migration or new scope needed.
+- [x] 145 automated tests pass, including actual PostgreSQL persistence, basic-scope onboarding, duplicate creation, preset rendering, legacy preservation and conflicting/forged updates.
+- [x] Final lint, TypeScript, production build and whitespace verification pass.
+- [x] Update manual onboarding/dashboard instructions, architecture and limitations.
+- [ ] User manually checks Chrome wizard, responsive layouts, selected Mayor visuals, existing saved town, portal and connections.
+
+Remaining limitations: wizard drafts are local; no naps/inspection animations or OBS; process-local Twitch sessions; dashboard preview is not the full live celebration view. No live database modification, automated browser testing, commit or push.
+
 ## Prompt 008 — Automatic neighborhood expansion
 
 - [x] Inspect the generator, graph, saved-world schema, RPC guards, subscriber lifecycle and renderer before extending them.

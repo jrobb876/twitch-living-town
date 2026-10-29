@@ -28,6 +28,8 @@ import { subscriber, housingNotification } from "../subscribers/test-fixtures";
 import { createHouseHandlers } from "../houses/http";
 import { colors, exteriorOf } from "../houses/customization";
 import { addDistrict } from "../simulation/expansion";
+import { streamerAccess } from "./streamer-access";
+import { personalityFor, mayorLooks, personalityNames } from "../mayor/presets";
 
 const db = new PGlite();
 before(async () => {
@@ -53,6 +55,89 @@ const profile = () => ({ twitchUserId: String(nextUser++), displayName: "Synthet
 const create = async () => { const owner = profile(); return { owner, town: await service.create(owner, { name: "Test town", mayorName: "Mochi", seed: 42 }) }; };
 const event = (townId: string, user = profile(), id = randomUUID()): Extract<DurableEvent, { type: "NEW_SUBSCRIBER" }> => ({ type: "NEW_SUBSCRIBER", id, townId, occurredAt: NOW, user: { twitchUserId: user.twitchUserId, displayName: user.displayName } });
 const code = (expected: string) => (error: unknown) => error instanceof PersistenceError && error.code === expected;
+
+test("basic login can onboard deliberately; existing towns bypass onboarding and duplicate creates retain the original Mayor", async () => {
+  const f = fixture(), owner = profile(); f.twitch.identity = owner; f.twitch.validation.userId = owner.twitchUserId;
+  const login = await f.login(); assert.deepEqual(f.twitch.validation.scopes, []);
+  const access = await streamerAccess(f.service, () => service, login.id);
+  assert.equal(access.destination, "/onboarding"); assert.equal(access.town, null); assert.equal(await service.mine(owner), null);
+  await assert.rejects(streamerAccess(f.service, () => service, undefined), (e: unknown) => (e as { code: string }).code === "unauthorized");
+  const original = await service.create(owner, { name: "Willowbrook", mayorName: "Mochito", mayorAppearance: { preset: "orange" }, mayorPersonality: personalityFor("curious") });
+  const duplicates = await Promise.all([service.create(owner, { name: "Replacement", mayorName: "Other" }), service.create(owner, { name: "Another", mayorName: "Another" })]);
+  assert.ok(duplicates.every((town) => town.world.id === original.world.id));
+  const next = await streamerAccess(f.service, () => service, login.id);
+  assert.equal(next.destination, "/dashboard"); assert.deepEqual(next.town, original);
+  assert.equal(next.town?.world.name, "Willowbrook"); assert.equal(next.town?.world.mayor.name, "Mochito");
+});
+
+test("all Mayor selections and town renames persist without changing expanded geometry, properties or event history", async () => {
+  const { owner, town } = await create();
+  for (let i = 0; i < 11; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) });
+  let saved = (await service.mine(owner))!;
+  const home = housesIn(saved.world).find((h) => h.ownerTwitchUserId)!;
+  saved = await service.updateHouse(owner, town.world.id, home.id, saved.revision, { customization: { sign: "Keep my garden", garden: "herbs" } });
+  const baseline = structuredClone(saved), receipts = (await db.query("select * from public.living_town_processed_events where town_id=$1 order by event_id", [town.world.id])).rows;
+  for (const [i, preset] of mayorLooks.entries()) {
+    const personality = personalityFor(personalityNames[i]);
+    saved = await service.saveSettings(owner, town.world.id, saved.revision, { name: `Town ${i}`, mayor: { name: `Mayor ${i}`, appearance: { preset }, personality } });
+    const loaded = (await new TownPersistenceService(new SupabaseTownRepository(rpc)).mine(owner))!;
+    assert.deepEqual(loaded, saved);
+    assert.deepEqual(loaded.world.mayor.appearance, { preset }); assert.deepEqual(loaded.world.mayor.personality, personality);
+    const row = (await db.query<{ appearance: unknown; personality: unknown; name: string }>("select appearance,personality,name from public.living_town_mayors where town_id=$1", [town.world.id])).rows[0];
+    assert.deepEqual(row, { appearance: { preset }, personality, name: `Mayor ${i}` });
+    const { name: ignoredName, mayor: ignoredMayor, ...rest } = loaded.world;
+    const { name: oldName, mayor: oldMayor, ...expected } = baseline.world;
+    assert.ok(ignoredName && ignoredMayor && oldName && oldMayor); assert.deepEqual(rest, expected);
+  }
+  assert.deepEqual((await db.query("select * from public.living_town_processed_events where town_id=$1 order by event_id", [town.world.id])).rows, receipts);
+  const [a, b] = await Promise.allSettled([
+    service.saveSettings(owner, town.world.id, saved.revision, { name: "First", mayor: { name: "First" } }),
+    service.saveSettings(owner, town.world.id, saved.revision, { name: "Second", mayor: { name: "Second" } }),
+  ]);
+  assert.equal([a, b].filter((r) => r.status === "fulfilled").length, 1);
+  assert.ok([a, b].some((r) => r.status === "rejected" && code("conflict")(r.reason)));
+});
+
+test("legacy Mayor values survive renames; invalid names, presets and protected settings fail without writing", async () => {
+  const { owner, town } = await create();
+  const renamed = await service.saveSettings(owner, town.world.id, town.revision, { name: " Willowbrook ", mayor: { name: " Mochito " } });
+  assert.equal(renamed.world.name, "Willowbrook"); assert.equal(renamed.world.mayor.name, "Mochito");
+  assert.deepEqual(renamed.world.mayor.appearance, town.world.mayor.appearance);
+  assert.deepEqual(renamed.world.mayor.personality, town.world.mayor.personality);
+  const legacy = structuredClone(renamed.world); delete legacy.mayor.appearance; delete legacy.mayor.personality;
+  assert.deepEqual(validateWorld(legacy), legacy, "reading missing optional settings does not rewrite saved state");
+  for (const name of ["", "   ", "x".repeat(61), "bad\u0000name"]) {
+    await assert.rejects(service.create(profile(), { name, mayorName: "Mayor" }), code("invalid_input"));
+    await assert.rejects(service.create(profile(), { name: "Town", mayorName: name }), code("invalid_input"));
+    await assert.rejects(service.saveSettings(owner, town.world.id, renamed.revision, { name, mayor: { name: "Mayor" } }), code("invalid_input"));
+    await assert.rejects(service.saveSettings(owner, town.world.id, renamed.revision, { name: "Town", mayor: { name } }), code("invalid_input"));
+  }
+  for (const mayor of [{ name: "Mayor", species: "dog" }, { name: "Mayor", appearance: { preset: "remote-image" } }, { name: "Mayor", personality: { preset: "evil", energy: 1, curiosity: 0 } }])
+    await assert.rejects(service.saveSettings(owner, town.world.id, renamed.revision, { name: "Town", mayor }), code("invalid_input"));
+  await assert.rejects(service.saveSettings(profile(), town.world.id, renamed.revision, { name: "Stolen", mayor: { name: "Other" } }), code("forbidden"));
+  await assert.rejects(service.saveSettings(owner, town.world.id, renamed.revision, { name: "Town", mayor: { name: "Mayor" }, seed: 9 }), code("invalid_input"));
+  assert.deepEqual(await service.mine(owner), renamed);
+});
+
+test("onboarding/settings HTTP uses basic Twitch identity, strict bodies, CSRF, ownership and stale revision guards", async () => {
+  const f = fixture(), owner = profile(); f.twitch.identity = owner; f.twitch.validation.userId = owner.twitchUserId;
+  const login = await f.login(), handlers = createTownHandlers(() => f.service, () => service, false);
+  const request = (method: string, body: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost:3000/api/town/settings", { method,
+    headers: { cookie: `${cookieNames(false).session}=${login.id}`, origin: "http://localhost:3000", "content-type": "application/json", "x-csrf-token": f.service.csrfToken(login.id), ...headers }, body: JSON.stringify(body) });
+  const created = await handlers.create(request("POST", { name: "My town", mayorName: "Nori", mayorAppearance: { preset: "dark" }, mayorPersonality: personalityFor("calm") }));
+  assert.equal(created.status, 200); const { town } = await created.json();
+  const body = { townId: town.world.id, revision: town.revision, settings: { name: "New name", mayor: { name: "Nori" } } };
+  assert.equal((await handlers.settings(request("PATCH", body, { cookie: "" }))).status, 401);
+  assert.equal((await handlers.settings(request("PATCH", body, { "x-csrf-token": "wrong" }))).status, 403);
+  assert.equal((await handlers.settings(request("PATCH", body, { origin: "https://elsewhere.example" }))).status, 403);
+  assert.equal((await handlers.settings(request("PATCH", { ...body, ownerId: "999" }))).status, 400);
+  const other = await create();
+  assert.equal((await handlers.settings(request("PATCH", { ...body, townId: other.town.world.id }))).status, 403);
+  assert.equal((await handlers.settings(request("PATCH", { ...body, settings: { ...body.settings, world: other.town.world } }))).status, 400);
+  const success = await handlers.settings(request("PATCH", body)); assert.equal(success.status, 200); assert.match(success.headers.get("cache-control")!, /no-store/);
+  assert.equal((await handlers.settings(request("PATCH", body))).status, 409);
+  assert.deepEqual(await service.mine(other.owner), other.town);
+});
 
 test("growth SQL accepts all forty deterministic districts, including negative-coordinate expansion", async () => {
   const { town } = await create();

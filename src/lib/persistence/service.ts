@@ -6,7 +6,7 @@ import { canCustomize, customizeHouse, exteriorSchema, houseVisual, type Propert
 import { processEvent } from "../simulation/engine";
 import type { TownWorld, TownEffect, MayorState } from "../simulation/types";
 import { PersistenceError, isPersistenceError, type PersistentTownRepository, type StoredTown, type DurableEvent, type HouseSettings, type CommitResult } from "./types";
-import { createTownSchema, mayorInputSchema, appearanceSchema, propertySchema, parseInput, townIdSchema, twitchId, validateWorld, subscriptionSchema, syncSchema } from "./validation";
+import { createTownSchema, mayorInputSchema, townSettingsSchema, appearanceSchema, propertySchema, parseInput, townIdSchema, twitchId, validateWorld, subscriptionSchema, syncSchema } from "./validation";
 
 const identity = z.object({ twitchUserId: twitchId, displayName: z.string().min(1).max(100) }).strict();
 const eventBase = z.object({ id: z.string().min(1).max(4096), townId: townIdSchema, occurredAt: z.number().finite().min(0).max(8640000000000000) });
@@ -82,13 +82,22 @@ export class TownPersistenceService {
   async create(profile: AccountProfile, input: unknown) {
     const options = parseInput(createTownSchema, input);
     const world = createWorld({ id: randomUUID(), streamerTwitchUserId: profile.twitchUserId, seed: options.seed ?? randomInt(0, 4294967296), name: options.name, mayorName: options.mayorName });
-    world.mayor.appearance = { preset: "default" }; world.mayor.personality = { curiosity: 0.5, energy: 0.5 };
+    world.mayor.appearance = options.mayorAppearance ?? { preset: "default" }; world.mayor.personality = options.mayorPersonality ?? { curiosity: 0.5, energy: 0.5 };
     return this.repository.create(profile, world); // Unique owner + transaction makes retries idempotent.
   }
   async saveMayor(profile: AccountProfile, townId: string, revision: number, input: unknown) {
     const settings = parseInput(mayorInputSchema, input), town = await this.owned(profile, townId);
     if (town.revision !== revision) throw new PersistenceError("conflict");
     town.world.mayor = { ...town.world.mayor, ...settings };
+    return this.save(profile, town);
+  }
+  async saveSettings(profile: AccountProfile, townId: string, revision: number, input: unknown) {
+    const settings = parseInput(townSettingsSchema, input);
+    parseInput(z.number().int().positive().max(Number.MAX_SAFE_INTEGER), revision);
+    const town = await this.owned(profile, townId);
+    if (town.revision !== revision) throw new PersistenceError("conflict");
+    town.world.name = settings.name;
+    town.world.mayor = { ...town.world.mayor, ...settings.mayor };
     return this.save(profile, town);
   }
   /** V1 layout is written at creation. Saving it again cannot move existing homes/navigation. */

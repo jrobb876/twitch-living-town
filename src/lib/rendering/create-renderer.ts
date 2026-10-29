@@ -44,7 +44,7 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     const world = new Container(); app.stage.addChild(world);
     let scene = drawTown(overviewOf(initial.world)); world.addChild(scene.world);
     let actors = scene.actors;
-    const { mayor, body, tail } = drawMayor(); actors.addChild(mayor);
+    let { mayor, body, tail } = drawMayor(initial.world.mayor.appearance?.preset); actors.addChild(mayor);
     const badge = new Text({ text: initial.world.mayor.name, style: { fontFamily: "Arial", fontWeight: "600", fontSize: 11, fill: 0x405e4a } });
     badge.anchor.set(0.5); badge.y = -66; mayor.addChild(badge);
     let elapsed = 0;
@@ -56,6 +56,13 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       width: app.screen.width / world.scale.x, height: app.screen.height / world.scale.x });
     const update = (next: TownSession) => {
       if (destroyed) return;
+      if (next.world.mayor.appearance?.preset !== snapshot.world.mayor.appearance?.preset) {
+        const previous = mayor; badge.removeFromParent();
+        ({ mayor, body, tail } = drawMayor(next.world.mayor.appearance?.preset));
+        mayor.position.copyFrom(previous.position); mayor.addChild(badge); actors.addChild(mayor);
+        previous.destroy({ children: true });
+      }
+      badge.text = next.world.mayor.name;
       const changed = next.world.layout !== snapshot.world.layout || next.world.plots !== snapshot.world.plots;
       const nextGeometry = changed ? geometryKey(next) : geometry;
       if (nextGeometry !== geometry) {

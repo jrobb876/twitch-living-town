@@ -35,6 +35,7 @@ export default function TwitchAccount({ detailed = false }: { detailed?: boolean
   const user = account.user;
   return <div className={detailed ? "account-profile" : "account-controls"}>
     {user ? <>
+      <Link className="account-button" href="/dashboard">My town</Link>
       <Link className="account-button" href="/my-houses">My Houses</Link>
       <div className="account-identity">
         {user.profileImageUrl && <Image unoptimized src={user.profileImageUrl} width={detailed ? 72 : 32} height={detailed ? 72 : 32} alt={`${user.displayName}'s Twitch profile`} referrerPolicy="no-referrer" className="account-avatar" />}

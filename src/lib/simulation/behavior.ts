@@ -1,6 +1,7 @@
 import { seededRandom } from "../town/generate";
 import type { PathNode } from "../town/types";
 import type { ActorState, MayorState, TownWorld } from "./types";
+import { mayorPause, mayorStroll } from "../mayor/behavior";
 
 // Layout arrays are immutable between expansions. Weak keys release old graphs.
 const graphs = new WeakMap<PathNode[], Map<string, PathNode>>();
@@ -67,7 +68,9 @@ export function advanceMayor(mayor: MayorState, world: TownWorld, now: number, d
   if (task && mayor.nodeId === task.nodeId && !mayor.targetNodeId) {
     return { ...mayor, tasks: tasks.slice(1), behavior: task.kind === "welcome" ? "welcoming" : "celebrating", celebrationUntil: now + 4000, restUntil: now + 4000 };
   }
-  const next = advanceActor(mayor, world, now, dt, score, 0xcafe, task?.nodeId);
+  const destination = task?.nodeId ?? (!mayor.targetNodeId && now >= mayor.restUntil ? mayorStroll(mayor, world) : undefined);
+  const next = advanceActor(mayor, world, now, dt, score, 0xcafe, destination);
+  if (!task && mayor.targetNodeId && !next.targetNodeId) next.restUntil = now + mayorPause(world, 1800 - score * 14);
   return { ...next, tasks, celebrationUntil: mayor.celebrationUntil,
     behavior: task ? "approaching" : next.targetNodeId ? "wandering" : "idle" };
 }

@@ -1,4 +1,5 @@
 import type { Point, Town } from "../town/types";
+import type { MayorLook, MayorPersonality } from "../mayor/presets";
 
 export type TwitchIdentity = { twitchUserId: string; displayName: string };
 /** World units are independent of camera zoom, viewport size and asset resolution. */
@@ -53,7 +54,7 @@ export type TownWorld = {
     generation?: { version: 1; index: number; seed: number; x: number; y: number; width: number; height: number } }[];
   plots: ResidentialPlot[]; buildings: Building[]; residents: Resident[];
   mayor: { id: string; name: string; species: "cat"; headquartersId: string;
-    appearance?: { preset: "default" }; personality?: { curiosity: number; energy: number } };
+    appearance?: { preset: "default" | MayorLook }; personality?: MayorPersonality };
   processedEvents: EventOutcome[]; giftGroups: GiftGroup[];
   subscriberSync?: SubscriberSync;
 };

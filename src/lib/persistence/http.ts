@@ -5,7 +5,7 @@ import { AuthError, isAuthError } from "../auth/types";
 import { cookieNames } from "../auth/config";
 import { safeEqual } from "../auth/crypto";
 import { isPersistenceError, PersistenceError, persistenceMessages } from "./types";
-import { parseInput, townIdSchema, mayorInputSchema } from "./validation";
+import { parseInput, townIdSchema, mayorInputSchema, townSettingsSchema } from "./validation";
 import type { TownPersistenceService } from "./service";
 
 function response(body: unknown, status = 200) {
@@ -63,6 +63,14 @@ export function createTownHandlers(authService: () => AuthService, persistence: 
         const body = parseInput(z.object({ townId: townIdSchema, revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), settings: mayorInputSchema }).strict(), await readTownInput(request));
         const town = await persistence().saveMayor(profile, body.townId, body.revision, body.settings);
         return response({ town, csrfToken, storage: "supabase" });
+      } catch (error) { return failure(error); }
+    },
+    async settings(request: NextRequest) {
+      try {
+        if (request.method !== "PATCH") throw new AuthError("forbidden");
+        const { profile, csrfToken } = await identity(request, true);
+        const body = parseInput(z.object({ townId: townIdSchema, revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER), settings: townSettingsSchema }).strict(), await readTownInput(request));
+        return response({ town: await persistence().saveSettings(profile, body.townId, body.revision, body.settings), csrfToken, storage: "supabase" });
       } catch (error) { return failure(error); }
     },
     async publicTown(_request: NextRequest, context: { params: Promise<{ townId: string }> }) {

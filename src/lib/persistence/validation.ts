@@ -19,9 +19,11 @@ export const propertySchema = z.object({ size: z.enum(["small", "medium", "large
   status: z.enum(["unclaimed", "verified_subscriber", "legacy"]),
   customization: z.record(z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/), z.union([z.string().max(120), z.number().finite(), z.boolean()])).refine((v) => Object.keys(v).length <= 20) }).strict();
 export const mayorInputSchema = z.object({ name: nameSchema,
-  appearance: z.object({ preset: z.literal("default") }).strict().optional(),
-  personality: z.object({ curiosity: z.number().min(0).max(1), energy: z.number().min(0).max(1) }).strict().optional() }).strict();
-export const createTownSchema = z.object({ name: nameSchema, mayorName: nameSchema, seed: z.number().int().min(0).max(4294967295).optional() }).strict();
+  appearance: z.object({ preset: z.enum(["default", "cream", "orange", "gray", "dark"]) }).strict().optional(),
+  personality: z.object({ curiosity: z.number().min(0).max(1), energy: z.number().min(0).max(1), preset: z.enum(["playful", "curious", "calm", "mischievous"]).optional() }).strict().optional() }).strict();
+export const townSettingsSchema = z.object({ name: nameSchema, mayor: mayorInputSchema }).strict();
+export const createTownSchema = z.object({ name: nameSchema, mayorName: nameSchema, seed: z.number().int().min(0).max(4294967295).optional(),
+  mayorAppearance: mayorInputSchema.shape.appearance, mayorPersonality: mayorInputSchema.shape.personality }).strict();
 export const layoutSchema = z.object({ seed: z.number().int().min(0).max(4294967295), width: z.number().positive().max(10000), height: z.number().positive().max(10000),
   plaza: point, hall: point, trees: z.array(point.extend({ size: z.number().positive().max(500), variant: z.number().int().min(0).max(10) })).max(2000),
   roads: z.array(z.object({ from: point, to: point, width: z.number().positive().max(500) }).strict()).max(2048),

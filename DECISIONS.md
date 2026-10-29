@@ -1,5 +1,13 @@
 # Technical decisions
 
+## 2026-10-29 — Streamer onboarding and Mayor selection (Prompt 009)
+
+1. **One explicit creation workflow.** `/onboarding` is a four-stage owner wizard; `/dashboard` is the existing owner's workspace. Server-side session/owner resolution controls both. Reads/login never create towns, and concurrent/repeated create requests retain the original record through the existing unique-owner RPC. The Overview keeps read/reload controls and links into this workflow.
+2. **Extend existing JSON settings, without migration.** Reuse appearance `{ preset }` and personality `{ curiosity, energy, preset? }`. Legacy `default`/missing appearance maps to cream at rendering time; old numeric personalities and Willowbrook/Mochito names remain untouched. A rename omits unchanged optional settings. The existing PostgreSQL projection already stores the added presets.
+3. **Share local art and keep the cat Mayor.** Four palettes feed SVG portraits and the existing PixiJS Mayor; changes rebuild only the Mayor graphics and update its name badge. No external assets or new species. Autonomous personality effects are deterministic choices of stroll direction/landmark and pause frequency, with existing event tasks taking precedence. No speed-only effect or fictional nap/inspection feature.
+4. **Keep authorization and conflicts explicit.** Settings use strict schemas, authenticated ownership, CSRF/origin checks and revision CAS through the original commit RPC. No browser-provided owner/world snapshot is accepted. Dashboard polls refresh status/preview while preserving the editor's base revision and draft. Reloading settings deliberately discards edits after a conflict.
+5. **Reuse connections, retain isolation.** The dashboard renders the existing chat and housing controls. Basic onboarding requires no new Twitch scope. Its preview reflects saved configuration; the Overview remains the live activity/celebration surface. Wizard previews and simulated events never enter permanent-world writes. No SQL migration, new secret, OBS overlay or live-database automation.
+
 ## 2026-10-29 — Automatic neighborhoods (Prompt 008)
 
 1. **Append deterministic districts.** Keep the core generator/version and every existing property coordinate. A versioned square-spiral recipe adds twelve-plot blocks, seeded planting, streets and bidirectional navigation links. Persist recipe metadata and exact geometry; never regenerate a saved town on load. Reserve defaults to four free plots. Constants are centralized; changing block dimensions/capacity requires a compatible recipe and validation review.

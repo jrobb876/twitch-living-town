@@ -1,6 +1,7 @@
 import { Container, Graphics, Text } from "pixi.js";
 import type { House, Town, Tree } from "../town/types";
 import { intersects, type Bounds } from "./camera";
+import { mayorPalette } from "../mayor/presets";
 
 const palette = { grass: 0xaacb91, dark: 0x425e4d, road: 0xe9d5ac, edge: 0xc9b58d };
 function label(parent: Container, text: string, x: number, y: number, size = 12, color = palette.dark) {
@@ -194,19 +195,21 @@ export function drawTown(town: Town) {
   } };
 }
 
-export function drawMayor() {
+export function drawMayor(preset?: string) {
+  const colors = mayorPalette(preset);
   const mayor = new Container();
   const shadow = new Graphics().ellipse(0, 4, 16, 6).fill({ color: 0x445f49, alpha: 0.2 });
   const body = new Container();
-  const tail = new Graphics().moveTo(10, -8).bezierCurveTo(32, -3, 29, -30, 19, -23).stroke({ color: 0xf7ddb3, width: 8, cap: "round" });
+  const tail = new Graphics().moveTo(10, -8).bezierCurveTo(32, -3, 29, -30, 19, -23).stroke({ color: colors.tail, width: 8, cap: "round" });
   const cat = new Graphics();
-  cat.ellipse(0, -9, 13, 17).fill(0xf6d7a6);
-  cat.roundRect(-12, -2, 9, 8, 4).roundRect(4, -2, 9, 8, 4).fill(0xffe9c5);
-  cat.poly([-16, -29, -17, -48, -4, -38]).poly([16, -29, 17, -48, 4, -38]).fill(0xf5d6a7);
+  cat.ellipse(0, -9, 13, 17).fill(colors.body);
+  cat.roundRect(-12, -2, 9, 8, 4).roundRect(4, -2, 9, 8, 4).fill(colors.paws);
+  cat.poly([-16, -29, -17, -48, -4, -38]).poly([16, -29, 17, -48, 4, -38]).fill(colors.ears);
   cat.poly([-13, -34, -13, -43, -6, -37]).poly([13, -34, 13, -43, 6, -37]).fill(0xdba59e);
-  cat.ellipse(0, -29, 18, 15).fill(0xffe7c1);
+  cat.ellipse(0, -29, 18, 15).fill(colors.face);
+  if (colors.stripes !== null) cat.moveTo(-7, -42).lineTo(-5, -36).moveTo(0, -43).lineTo(0, -36).moveTo(7, -42).lineTo(5, -36).stroke({ color: colors.stripes, width: 2.5, cap: "round" });
   cat.ellipse(-10, -25, 4, 2).ellipse(10, -25, 4, 2).fill(0xe9b5a7);
-  cat.circle(-6, -30, 2).circle(6, -30, 2).fill(0x46584d);
+  cat.circle(-6, -30, 2).circle(6, -30, 2).fill(colors.eyes);
   cat.poly([-2, -25, 2, -25, 0, -22]).fill(0xb58378);
   cat.moveTo(-4, -20).quadraticCurveTo(0, -17, 4, -20).stroke({ color: 0x8f7462, width: 1.3 });
   cat.moveTo(-14, -24).lineTo(-22, -26).moveTo(14, -24).lineTo(22, -26).stroke({ color: 0xb99a79, width: 1.2 });

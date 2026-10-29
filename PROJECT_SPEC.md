@@ -12,6 +12,12 @@ Chat delivery diagnostics distinguish socket connection, confirmed subscription 
 
 ## Architecture
 
+Prompt 009 adds `/onboarding` and `/dashboard`. Server pages resolve the validated Twitch session and its owned town without trusting URL/browser owner claims. No town redirects to the four-step wizard; an existing town redirects to its dashboard. Creation remains explicit and idempotent through the original create RPC. Chat/subscription scopes are not required for onboarding. The Overview retains its saved-world loader and links to the owner workspace instead of maintaining a second creation/settings form.
+
+The owner dashboard reuses ChatConnection and SubscriberHousing, provides a saved-world preview and bounded settings form, and exposes population/active subscriber homes/plots. `PATCH /api/town/settings` uses existing identity/origin/CSRF checks and a strict `{ name, mayor }` schema. Interactive conflicts require explicit reload; polls do not replace draft values. No SQL migration is needed: the existing snapshot and Mayor JSON projections persist these additions atomically with town renaming.
+
+Mayor presets are cream, orange tabby, gray and dark. `lib/mayor/presets.ts` is shared by SVG selection cards, the Overview portrait and PixiJS drawing. Legacy `default`/missing appearance renders cream without rewriting saved JSON. Named personality presets coexist with legacy curiosity/energy values. Playful favors plaza walks/short pauses; Curious favors nearby doorstep exploration; Calm pauses longer and sometimes heads toward Town Hall; Mischievous favors backtracking and exploratory steps. Decisions are deterministic and do not alter movement speed; event tasks remain higher priority. Missing/legacy numeric personalities retain prior behavior. No naps or construction inspection behavior is claimed.
+
 ```text
 Verified Twitch adapters / isolated development simulator
                          ↓ normalized TownEvent
@@ -136,9 +142,9 @@ RLS is enabled on every new table, browser privileges are revoked, and only the 
 
 World schema/generator versions are pinned at 1. Existing coordinates, seed, house/plot identity and assigned ownership cannot change through normal saves. Unknown versions fail closed and require a reviewed migration. Mayor appearance/personality and house size/prestige/customization are stored as bounded settings. Subscriber Housing reuses existing renderer/effects and adds no economy or customization editor. See `supabase/README.md` for setup and production limits.
 
-Planned surfaces: public town directory, full streamer dashboard, subscriber portal, OBS overlay, live Twitch EventSub/Helix features beyond chat, and later Fastify/Socket.IO services.
+Implemented surfaces include the owner dashboard/onboarding and subscriber exterior portal. Planned surfaces include a public town directory, advanced streamer tools, OBS overlay, further Twitch integrations, and later Fastify/Socket.IO services.
 
-Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions, Supabase town persistence and subscriber exterior customization are implemented. Real follower/raid/Bits/Channel Points events, Socket.IO, OBS, arbitrary expansion and an isometric renderer remain deferred. Richer Mayor naps, inspections and personality behavior remain future work.
+Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions, Supabase persistence, incremental neighborhoods, subscriber exterior customization and owner onboarding/settings are implemented. Real follower/raid/Bits/Channel Points events, Socket.IO, OBS and an isometric renderer remain deferred. Richer Mayor naps, inspections and expressive animations remain future work beyond the implemented personality-driven stroll choices and idle pauses.
 
 ## Verified Subscriber Housing (Prompt 006)
 
