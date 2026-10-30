@@ -27,7 +27,7 @@ html:has(.obs-root), body:has(.obs-root) { background: transparent; overflow: hi
 .house-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:22px; margin:32px 0; }
 .house-card { border:1px solid #dbe1d0; border-radius:20px; padding:26px; background:#fffdf5; text-decoration:none; transition:transform .15s; }
 .house-card:hover { transform:translateY(-3px); border-color:#9cb494; }
-.house-card h2,.house-editor h2,.demo-town-section h2 { font-size:24px; font-weight:600; color:#405b49; margin:14px 0; }
+.house-card h2,.house-card h3,.house-editor h2,.demo-town-section h2 { font-size:24px; font-weight:600; color:#405b49; margin:14px 0; }
 .house-card-icon { display:block; font-size:70px; line-height:1.1; margin-bottom:18px; }
 .house-card strong { display:block; font-size:13px; margin-top:24px; color:#4c7055; }
 .house-empty,.demo-editor-invite { padding:36px; border:1px dashed #b8c9a9; border-radius:18px; background:#f2f5e8; margin:32px 0; }
@@ -220,3 +220,22 @@ h1 > span { color: #8caa70; }
 .dashboard-grid .workspace-preview { position: sticky; top: 20px; }
 @media (max-width: 1050px) { .dashboard-grid { grid-template-columns: 1fr; } .dashboard-grid .workspace-preview { position: relative; top: auto; } }
 @media (max-width: 600px) { .mayor-grid { grid-template-columns: repeat(2, 1fr); } .personality-grid { grid-template-columns: 1fr; } .wizard-steps { gap: 8px; } .wizard-steps li { font-size: 11px; } .wizard-steps span { display: grid; margin-bottom: 8px; } .welcome-mayor { align-items: flex-start; gap: 18px; } .welcome-mayor svg { width: 90px; flex-basis: 90px; } .dashboard-stats { gap: 8px; } .dashboard-stats > div { padding: 12px; } .workspace-preview { min-height: 350px; } }
+
+/* Unified account hub: reuse existing cards, portraits and settings controls. */
+.dashboard-welcome { margin: 30px 0; max-width: 780px; }
+.dashboard-welcome h1 { font: clamp(32px, 5vw, 54px)/1.15 Georgia, serif; letter-spacing: -1.5px; color: #3e5948; overflow-wrap: anywhere; }
+.account-dashboard h2 { font: 30px Georgia, serif; color: #405b49; margin: 14px 0; }
+.account-dashboard h3 { font-size: 23px; color: #405b49; overflow-wrap: anywhere; }
+.account-dashboard p, .town-visit p { color: #65755e; line-height: 1.8; }
+.dashboard-houses { margin-top: 48px; }
+.account-dashboard section, #settings, #obs { scroll-margin-top: 24px; }
+.house-card { min-width: 0; overflow-wrap: anywhere; }
+.house-card .workspace-actions { align-items: flex-start; }
+.house-card .house-preview { width: 100%; }
+.account-dashboard .house-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr)); }
+@media (max-width: 600px) {
+  .account-dashboard .welcome-mayor { flex-wrap: wrap; }
+  .account-dashboard .workspace-card, .house-card { padding: 20px; }
+  .account-dashboard .workspace-actions a { text-align: center; }
+  .houses-page .house-grid { grid-template-columns: minmax(0, 1fr); }
+}

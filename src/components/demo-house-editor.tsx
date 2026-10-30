@@ -7,7 +7,7 @@ import HouseEditor from "./house-editor";
 const TownCanvas = dynamic(() => import("./town-canvas"), { ssr: false });
 export default function DemoHouseEditor() {
   const [world, setWorld] = useState(() => createWorld({ id: "demo-house-editor", streamerTwitchUserId: "sim-streamer", seed: 42, name: "Clover Demo Town", mayorName: "Mochi" }));
-  const [initial] = useState<PropertyView>(() => ({ townId: world.id, townName: world.name, revision: 1, house: housesIn(world)[0], ownerName: "Demo neighbor (sample)", editable: true }));
+  const [initial] = useState<PropertyView>(() => ({ townId: world.id, townName: world.name, streamerTwitchUserId: world.streamerTwitchUserId, revision: 1, house: housesIn(world)[0], ownerName: "Demo neighbor (sample)", editable: true }));
   return <><p className="demo-editor-banner"><strong>DEMO HOUSE EDITOR</strong> · Isolated sample data. No verified subscriber, no real property owner, and no database writes. Reloading resets this demonstration.</p>
     <HouseEditor initial={initial} demo onSave={async (draft, revision) => {
       const next = customizeDemo(world, initial.house.id, draft); setWorld(next);

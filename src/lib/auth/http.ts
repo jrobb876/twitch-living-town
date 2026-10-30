@@ -26,6 +26,8 @@ export function createAuthHandlers(service: () => AuthService, production: boole
       try {
         const auth = service();
         if (request.nextUrl.origin !== auth.config.origin) throw new AuthError("forbidden");
+        // No caller-directed return path is supported. Scope upgrades use fixed destinations.
+        if (["returnTo", "returnUrl", "next"].some((key) => request.nextUrl.searchParams.has(key))) throw new AuthError("forbidden");
         operation = "login_state";
         const login = auth.beginLogin(request.cookies.get(names.state)?.value);
         operation = "login_redirect";
@@ -49,7 +51,7 @@ export function createAuthHandlers(service: () => AuthService, production: boole
         operation = "callback_session";
         const login = await auth.finishLogin({ state: params.get("state") ?? undefined, code: params.get("code") ?? undefined,
           error: params.get("error") ?? undefined }, request.cookies.get(names.state)?.value, request.cookies.get(names.session)?.value);
-        response = redirect(login.housingRequested ? "/?housing=authorized" : login.chatRequested ? "/?chat=authorized" : "/account");
+        response = redirect(login.housingRequested ? "/?housing=authorized" : login.chatRequested ? "/?chat=authorized" : "/dashboard");
         response.cookies.set(names.session, login.id, cookieOptions(production, SESSION_TTL_MS / 1000));
         authDiagnostic(operation, "success");
       } catch (error) { authDiagnostic(operation, "failure", error); response = redirect(`/account?auth=${errorCode(error)}`); }

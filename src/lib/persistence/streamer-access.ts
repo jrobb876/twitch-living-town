@@ -9,5 +9,5 @@ export async function streamerAccess(auth: AuthService, persistence: () => TownP
   if (!profile || !sessionId) throw new AuthError("unauthorized");
   const town = await persistence().mine(profile);
   if (town && town.world.streamerTwitchUserId !== profile.twitchUserId) throw new PersistenceError("forbidden");
-  return { town, csrfToken: auth.csrfToken(sessionId), destination: town ? "/dashboard" as const : "/onboarding" as const };
+  return { town, csrfToken: auth.csrfToken(sessionId), destination: town ? "/dashboard/town" as const : "/onboarding" as const };
 }

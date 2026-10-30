@@ -1,5 +1,13 @@
 # Technical decisions
 
+## 2026-10-30 — Unified dashboard (Prompt 015)
+
+1. Preserve the existing town-management component at `/dashboard/town`; use `/dashboard` for an authenticated hub with both roles visible. Server-only reads authenticate first and distinguish storage failures from empty town/house states.
+2. Change only basic OAuth's success destination after awaited session persistence. Keep the fixed chat/subscriber upgrade destinations and account error flow. No generic return-path mechanism existed; reject returnTo/returnUrl/next at login instead of adding redirect state or accepting arbitrary URLs.
+3. Resolve house ownership from existing private service/RPC relationships. Add broadcaster ID to the private property view and optional display metadata from known validated server profiles. The current RPC surface does not provide projected user names; use an explicit ID fallback rather than changing database privileges or adding a migration just for names. Names are presentation, never authority.
+4. Reuse the public projection for a specific town visit and the existing renderer for its camera/Mayor. Public visits are saved snapshots without live chat/private residents. Reuse the house preview on demand to avoid allocating a WebGL canvas for every card on load.
+5. Keep settings, subscriber entitlement checks, persistent logout, OBS grants and isolated demo behavior unchanged. Test server-rendered dashboard states and URL targets without browser automation.
+
 ## 2026-10-30 — Expanded OBS preview (Prompt 012)
 
 1. Use a separate in-memory route, not an override of a saved town or a production overlay. No real account/settings reads, token authorization shortcut, persistence endpoint or subscriber reconciliation. Reset disposes the route and returns to the original Overview; saved data remains untouched.

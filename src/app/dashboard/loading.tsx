@@ -1,1 +1,1 @@
-export default function Loading() { return <main className="account-page" role="status">Opening your dashboard…</main>; }
+export default function Loading() { return <main className="streamer-page"><p role="status">Finding your town and community homes…</p></main>; }

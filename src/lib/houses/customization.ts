@@ -11,7 +11,7 @@ export const exteriorSchema = z.object({
   garden: z.enum(["flowers", "herbs", "stones"]), accent: z.enum(["none", "lantern", "birdhouse"]),
 }).strict();
 export type ExteriorDraft = z.infer<typeof exteriorSchema>;
-export type PropertyView = { townId: string; townName: string; revision: number; house: HouseBuilding; ownerName: string; editable: boolean };
+export type PropertyView = { townId: string; townName: string; streamerTwitchUserId: string; streamerName?: string; revision: number; house: HouseBuilding; ownerName: string; editable: boolean };
 const preset = (value: unknown): ExteriorDraft["roof"] => (Object.keys(colors) as (keyof typeof colors)[]).find((key) => colors[key] === value) ?? "original";
 export function exteriorOf(house: HouseBuilding): ExteriorDraft {
   const data = house.property?.customization ?? {};

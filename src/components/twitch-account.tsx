@@ -9,8 +9,8 @@ import { logoutAccount } from "@/lib/auth/logout-client";
 
 type AccountState = { user: AccountProfile | null; csrfToken: string | null; error?: string };
 
-export default function TwitchAccount({ detailed = false }: { detailed?: boolean }) {
-  const [account, setAccount] = useState<AccountState | null>(null);
+export default function TwitchAccount({ detailed = false, initialAccount }: { detailed?: boolean; initialAccount?: AccountState }) {
+  const [account, setAccount] = useState<AccountState | null>(initialAccount ?? null);
   const [signingOut, setSigningOut] = useState(false);
   const [logoutError, setLogoutError] = useState(false);
   async function signOut() {
@@ -47,7 +47,8 @@ export default function TwitchAccount({ detailed = false }: { detailed?: boolean
   const user = account.user;
   return <div className={detailed ? "account-profile" : "account-controls"}>
     {user ? <>
-      <Link className="account-button" href="/dashboard">My town</Link>
+      <Link className="account-button" href="/dashboard">Dashboard</Link>
+      <Link className="account-button" href="/dashboard/town">My Town</Link>
       <Link className="account-button" href="/my-houses">My Houses</Link>
       <div className="account-identity">
         {user.profileImageUrl && <Image unoptimized src={user.profileImageUrl} width={detailed ? 72 : 32} height={detailed ? 72 : 32} alt={`${user.displayName}'s Twitch profile`} referrerPolicy="no-referrer" className="account-avatar" />}

@@ -1,5 +1,7 @@
 # Prompt 014 — Unified identity and cross-town ownership audit
 
+Implementation follow-up: Prompt 015 adds the unified `/dashboard`, shared property cards with optional known-profile broadcaster names, and `/towns/[townId]` visits. The findings below describe the Prompt 014 audit baseline; the earlier navigation gaps are now addressed as documented in README. Persistent broadcaster-name lookup, grant-lifetime independence and the Extension adapter remain deferred.
+
 Reviewed 2026-10-30 against the workspace implementation and migrations 001–006. This is a source review and local regression exercise, not verification of the live project's deployed schema or settings. No live database, browser, deployment or migration application was used.
 
 ## Assessment: Partially Supported

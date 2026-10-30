@@ -9,6 +9,7 @@ import { isPersistenceError, persistenceMessages } from "../persistence/types";
 import { parseInput, townIdSchema } from "../persistence/validation";
 import { readTownInput } from "../persistence/http";
 import { exteriorSchema } from "./customization";
+import { attributeProperties } from "./attribution";
 export const houseMessages = {
   unauthorized: "Sign in with Twitch to find your houses.",
   forbidden: "This property is read-only. Editing requires ownership and a verified active subscription.",
@@ -35,7 +36,7 @@ export function createHouseHandlers(authService: () => AuthService, persistence:
   const target = z.object({ townId: townIdSchema, houseId: z.string().min(1).max(256) }).strict();
   return {
     async list(request: NextRequest) {
-      try { const { profile } = await identity(request); return response({ houses: await persistence().listOwnProperties(profile) }); }
+      try { const { profile } = await identity(request); return response({ houses: await attributeProperties(authService(), await persistence().listOwnProperties(profile)) }); }
       catch (error) { return failure(error); }
     },
     async get(request: NextRequest, params: { townId: string; houseId: string }) {

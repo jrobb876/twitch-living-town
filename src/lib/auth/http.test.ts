@@ -18,7 +18,7 @@ function setup(production = false, redirectUri?: string) {
 
 for (const [production, redirectUri] of [[false, undefined], [true, undefined], [true, "http://localhost:3000/api/auth/twitch/callback"]] as const) {
   test(`login/callback set opaque HttpOnly SameSite cookies and no-store responses (${production ? "production" : "development"}, ${redirectUri ? "localhost" : "default"})`, async () => {
-    const f = setup(production, redirectUri), login = f.handlers.login(f.request("/api/auth/twitch/login?returnTo=https://evil.example"));
+    const f = setup(production, redirectUri), login = f.handlers.login(f.request("/api/auth/twitch/login"));
     assert.equal(login.status, 303);
     const location = new URL(login.headers.get("location")!), cookie = login.cookies.get(f.names.state)!;
     assert.equal(location.origin, "https://id.twitch.tv");
@@ -28,7 +28,7 @@ for (const [production, redirectUri] of [[false, undefined], [true, undefined], 
     assert.equal(cookie.maxAge, STATE_TTL_MS / 1000);
     if (production) assert.match(cookie.name, /^__Host-/);
     const response = await f.handlers.callback(f.request(`/api/auth/twitch/callback?code=private-code&state=${location.searchParams.get("state")}`, { [f.names.state]: cookie.value }));
-    assert.equal(response.headers.get("location"), "/account");
+    assert.equal(response.headers.get("location"), "/dashboard");
     assert.match(response.headers.get("cache-control")!, /no-store/);
     assert.equal(response.headers.get("referrer-policy"), "no-referrer");
     assert.equal(response.cookies.get(f.names.state)?.maxAge, 0);
@@ -44,6 +44,29 @@ for (const [production, redirectUri] of [[false, undefined], [true, undefined], 
     assert.equal(publicSession.headers.get("vary"), "Cookie");
   });
 }
+
+test("caller-directed return destinations are rejected at login and cannot replace the callback destination", async () => {
+  const f = setup();
+  for (const key of ["returnTo", "returnUrl", "next"]) {
+    for (const value of ["https://evil.example", "//evil.example", "\\evil.example", "/%2f/evil.example", "javascript:alert(1)", "/dashboard\r\nLocation: https://evil.example", "", "/account"]) {
+      const denied = f.handlers.login(f.request(`/api/auth/twitch/login?${key}=${encodeURIComponent(value)}`));
+      assert.equal(denied.headers.get("location"), "/account?auth=forbidden");
+      assert.equal(f.store.states.size, 0);
+    }
+  }
+  const a = f.begin();
+  const success = await f.handlers.callback(f.request(`/api/auth/twitch/callback?state=${a.state}&code=synthetic&returnTo=//evil.example`, { [f.names.state]: a.binding }));
+  assert.equal(success.headers.get("location"), "/dashboard");
+});
+
+test("callback never redirects to the dashboard or sets a session cookie when persistence fails", async () => {
+  const f = setup(), a = f.begin();
+  f.store.flush = async () => { throw new AuthError("unavailable"); };
+  const failed = await f.handlers.callback(f.request(`/api/auth/twitch/callback?state=${a.state}&code=synthetic`, { [f.names.state]: a.binding }));
+  assert.equal(failed.headers.get("location"), "/account?auth=unavailable");
+  assert.equal(failed.cookies.get(f.names.session), undefined);
+  assert.equal(f.store.sessions.size, 0);
+});
 
 test("callback rejects missing state, repeated parameters and replay without leaking upstream errors", async () => {
   const f = setup(), a = f.begin();

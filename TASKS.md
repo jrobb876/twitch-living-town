@@ -1,5 +1,15 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 015 — Unified dashboard and login navigation
+
+- [x] Resume partial hub/OAuth work; preserve existing management controls at `/dashboard/town` and default basic login to `/dashboard` only after persisted success.
+- [x] Add protected hub states for neither/one/both roles, section-specific errors, loading states, Mayor configuration summary, account/sign-out and settings/OBS navigation.
+- [x] Share owner-filtered house cards, optional broadcaster attribution, lazy existing previews and correct cross-town Visit/Edit links with My Houses.
+- [x] Add read-only `/towns/[townId]` using the existing public projection, camera and Mayor animation; no new public directory or private metadata exposure.
+- [x] Update OAuth failure/redirect tests; add dashboard data and server-rendered UI coverage for roles, partial failure, authorization, public projection and action destinations. Existing persistent sign-out/restart tests remain applicable.
+- [x] TypeScript, lint, all 197 tests, production build and Git diff checks passed. Initial sandbox test launch failed before test execution on Windows user lookup; the permitted retry passed using synthetic services/disposable local databases.
+- [ ] Manual Chrome desktop/mobile navigation and visual checks using README instructions. No browser automation, live database changes, migrations, OBS token rotation, commit or deployment.
+
 ## Prompt 014 — Unified identity and multi-town audit
 
 - [x] Review migrations 001–006, contextual roles, pre-login allocation, cross-town discovery/editing, subscription reconciliation and private RPC boundaries. Findings: [MULTI_TOWN_AUDIT.md](MULTI_TOWN_AUDIT.md).

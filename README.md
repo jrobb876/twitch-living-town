@@ -8,6 +8,50 @@ A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-i
 
 ## Run locally
 
+### Unified dashboard (Prompt 015)
+
+Basic Twitch login now lands on `/dashboard` after session persistence succeeds. The hub shows My Town and all owned subscriber houses together, including empty/error states for either section. `/dashboard/town` retains the existing town/Mayor settings, chat and subscriber controls, and OBS settings (`#settings` / `#obs`). `/account` remains account management. Chat/subscriber scope upgrades retain their existing fixed Overview destinations; arbitrary `returnTo`, `returnUrl` and `next` parameters are unsupported and rejected at login.
+
+Both the dashboard and `/my-houses` use owner-filtered property discovery. Cards show town, house name, optional preview, correct Visit Town and Customize/View actions. Streamer attribution follows the town's stored broadcaster ID; a display name is shown only when an unexpired, previously validated profile is already available to the server. Otherwise the card shows the broadcaster ID and “name unavailable.” It never uses the house owner's name as the streamer. Existing database grants do not expose the user-profile table through a read RPC, so this phase adds no migration or broader table permissions.
+
+`/towns/[townId]` renders the existing public projection as a read-only saved-town visit, with camera controls and an animated Mayor. It does not expose subscriber identities, private customization metadata, OBS grants or live chat. Reload to see saved changes. House previews are opened on demand, using the existing renderer.
+
+No new environment variables are needed. House editing still requires ownership, recorded active membership and a fresh verification using that broadcaster's Subscriber Housing OAuth grant. A dashboard card may say active while a save fails if the broadcaster's eight-hour session has expired or verification is unavailable. Expired memberships retain their houses as read-only. No entitlement rules changed.
+
+Manual verification in Chrome (no automated browser test was performed):
+
+1. Stop any existing local server, then run `npm run build` and `npm start` from `F:\Development\TwitchLivingTown`. Keep the existing server-only environment configuration; do not paste credentials into URLs or logs.
+2. In a signed-out/incognito window, open `http://localhost:3000/dashboard`. Expect the account page without private town or house information. Connect with Twitch; after success expect `/dashboard`. Denying authorization should leave the existing error on `/account`.
+3. Open `/dashboard` directly while signed in. Check the appropriate states using available test accounts: neither role (Create My Town + no houses), town only, houses only, and both. Nothing is created merely by viewing the dashboard.
+4. For an owner, open Manage My Town, Town & Mayor settings, and Configure OBS. Confirm the original controls and saved values load at `/dashboard/town`. Viewing OBS settings must not rotate its URL. The original live Town Overview remains at `/`.
+5. For a user with houses in different towns, check each card's town and broadcaster, open its preview, Visit Town, and Customize House. The URL must contain that card's town ID and, for editing, its house ID. A retained legacy house offers View retained house. Only save a change if intentionally testing customization with an eligible test account.
+6. Check `/my-houses`, the editor's Dashboard/Visit Town links, and `/account`. At a narrow mobile viewport, verify navigation/cards wrap and previews fit. On a visit page, test pan/zoom and confirm it stays in the selected town.
+7. Click Sign out on the dashboard. Expect `/account?auth=signed_out`. Reload `/dashboard`; it should require login. With `AUTH_STORAGE=supabase`, restarting the local server must not revive the logged-out cookie/session. Existing automated tests exercise this with a disposable database.
+8. An explicit `/api/auth/twitch/login?returnTo=https%3A%2F%2Fexample.com` should return the existing forbidden error on `/account`, never redirect externally. Normal Connect with Twitch still works.
+
+Prompt 012 remains development-only; use its instructions below for the isolated OBS preview. No migration, live database modification, production OBS change, browser automation, commit or deployment is part of Prompt 015.
+
+Validation: TypeScript, lint, all 197 tests, production build and Git diff checks passed. Tests include server-rendered dashboard states and use synthetic Twitch services/disposable PGlite databases. Chrome/OBS visual verification remains manual.
+
+<details>
+<summary>Prompt 015 file map</summary>
+
+Created:
+
+- Routes: `src/app/dashboard/error.tsx`, `src/app/dashboard/town/page.tsx`, `src/app/towns/[townId]/page.tsx`, `src/app/towns/[townId]/loading.tsx`.
+- Components: `src/components/account-dashboard.tsx`, `property-cards.tsx`, `property-preview.tsx`.
+- Read models/helpers: `src/lib/persistence/dashboard.ts`, `public-view.ts`; `src/lib/houses/attribution.ts`, `links.ts`.
+
+Modified:
+
+- Routes/styles: `src/app/dashboard/page.tsx`, `dashboard/loading.tsx`, `account/page.tsx`, `my-houses/page.tsx`, `my-houses/[townId]/[houseId]/page.tsx`, `globals.css`.
+- Components: `src/components/my-houses.tsx`, `streamer-page.tsx`, `streamer-workspace.tsx`, `twitch-account.tsx`; `demo-house-editor.tsx` supplies the added property-view field without changing demo behavior.
+- Services: `src/lib/auth/http.ts`, `service.ts`; `src/lib/houses/customization.ts`, `http.ts`; `src/lib/persistence/service.ts`, `streamer-access.ts`.
+- Tests: `src/lib/auth/http.test.ts`, `diagnostics.test.ts`; `src/lib/persistence/persistence.test.ts`.
+- Documentation: `README.md`, `PROJECT_SPEC.md`, `TASKS.md`, `DECISIONS.md`, `MULTI_TOWN_AUDIT.md` (follow-up note).
+
+</details>
+
 ### Expanded OBS preview (Prompt 012, local development only)
 
 This separate in-memory preview is at **http://localhost:3000/demo/obs-preview**. It does not fetch an account, saved world, Twitch events or OBS grant. No preview API or persistence path exists. Its fictional Mochi and neighbors are independent of your configured live Mayor/town. The existing real OBS URLs and authorization are unchanged.

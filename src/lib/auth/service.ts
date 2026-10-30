@@ -15,6 +15,17 @@ export class AuthService {
   csrfToken(id: string) { return this.vault.digest("logout-csrf", id); }
   async ready() { await this.store.ready(); }
 
+  /** Optional public display metadata for server-selected IDs. Never returns sessions or credentials. */
+  async knownDisplayNames(userIds: readonly string[]): Promise<Record<string, string>> {
+    await this.store.ready();
+    const wanted = new Set(userIds), names: Record<string, string> = {};
+    for (const entry of this.store.sessions.values()) {
+      if (entry.expiresAt > this.now() && entry.validatedAt > 0 && wanted.has(entry.profile.twitchUserId))
+        names[entry.profile.twitchUserId] = entry.profile.displayName;
+    }
+    return names;
+  }
+
   beginLogin(previousBinding?: string, chatUserId?: string, scopes = chatUserId ? [CHAT_SCOPE] : []) {
     const requiredScopes = [...new Set(scopes)];
     if (requiredScopes.some((scope) => ![CHAT_SCOPE, SUBSCRIPTION_SCOPE].includes(scope)) || (requiredScopes.length && !chatUserId)) throw new AuthError("forbidden");

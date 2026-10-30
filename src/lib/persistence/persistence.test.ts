@@ -33,6 +33,12 @@ import { personalityFor, mayorLooks, personalityNames } from "../mayor/presets";
 import { OverlayService, hashOverlayToken } from "../overlay/service";
 import { defaultDisplay, offlineActivity } from "../overlay/model";
 import { createOverlayHandlers } from "../overlay/http";
+import { dashboardAccess } from "./dashboard";
+import { publicVisitWorld } from "./public-view";
+import { townVisitPath, houseEditorPath } from "../houses/links";
+import { renderToStaticMarkup } from "react-dom/server";
+import { createElement } from "react";
+import AccountDashboard from "../../components/account-dashboard";
 
 const db = new PGlite();
 before(async () => {
@@ -154,7 +160,7 @@ test("basic login can onboard deliberately; existing towns bypass onboarding and
   const duplicates = await Promise.all([service.create(owner, { name: "Replacement", mayorName: "Other" }), service.create(owner, { name: "Another", mayorName: "Another" })]);
   assert.ok(duplicates.every((town) => town.world.id === original.world.id));
   const next = await streamerAccess(f.service, () => service, login.id);
-  assert.equal(next.destination, "/dashboard"); assert.deepEqual(next.town, original);
+  assert.equal(next.destination, "/dashboard/town"); assert.deepEqual(next.town, original);
   assert.equal(next.town?.world.name, "Willowbrook"); assert.equal(next.town?.world.mayor.name, "Mochito");
 });
 
@@ -772,6 +778,73 @@ test("subscriber reconciliation deduplicates within each town while independent 
   a.setPages([[entry]]); await a.sync();
   const restored = await service.listOwnProperties(member); assert.ok(restored.every((p) => p.editable));
   assert.deepEqual(restored.map((p) => [p.townId, p.house.id]).sort(), initial.map((p) => [p.townId, p.house.id]).sort());
+});
+
+test("dashboard covers neither role, streamer only, subscriber only and both with correct cross-town actions", async () => {
+  const f = await portalFixture(), auth = fixture();
+  auth.twitch.identity = f.first.owner; auth.twitch.validation.userId = f.first.owner.twitchUserId;
+  await auth.login(); // Optional broadcaster metadata already known to this server.
+  async function as(user: ReturnType<typeof profile>) {
+    auth.twitch.identity = user; auth.twitch.validation.userId = user.twitchUserId;
+    const login = await auth.login();
+    return dashboardAccess(auth.service, () => service, login.id);
+  }
+  const neither = await as(profile());
+  assert.equal(neither.town, null); assert.deepEqual(neither.houses, []);
+  const empty = renderToStaticMarkup(createElement(AccountDashboard, { data: neither }));
+  assert.match(empty, /Create My Town/); assert.match(empty, /No houses are linked/);
+  const streamer = await as(f.second.owner);
+  assert.equal(streamer.town?.world.id, f.second.town.world.id); assert.deepEqual(streamer.houses, []);
+  const streamerHtml = renderToStaticMarkup(createElement(AccountDashboard, { data: streamer }));
+  assert.match(streamerHtml, /Manage My Town/); assert.match(streamerHtml, /dashboard\/town#obs/);
+  const subscriber = await as(f.member);
+  assert.equal(subscriber.town, null); assert.equal(subscriber.houses.length, 2);
+  assert.ok(subscriber.houses.every((p) => p.streamerName === "Synthetic streamer"));
+  assert.equal(subscriber.townUnavailable, false); assert.equal(subscriber.housesUnavailable, false);
+  const own = await service.create(f.member, { name: "Also my town", mayorName: "Mochi", seed: 42 });
+  const both = await as(f.member); assert.equal(both.town?.world.id, own.world.id); assert.equal(both.houses.length, 2);
+  const html = renderToStaticMarkup(createElement(AccountDashboard, { data: both }));
+  for (const p of both.houses) {
+    assert.ok(html.includes(`href="${townVisitPath(p.townId)}"`));
+    assert.ok(html.includes(`href="${houseEditorPath(p.townId, p.house.id)}"`));
+    assert.equal(p.house.ownerTwitchUserId, f.member.twitchUserId);
+  }
+  assert.match(html, /My Town/); assert.match(html, /My Houses/); assert.match(html, /Sign out/);
+  assert.ok(!html.includes("test-access")); assert.ok(!html.includes("encryptedTokens"));
+  const legacy = renderToStaticMarkup(createElement(AccountDashboard, { data: { ...subscriber, houses: [{ ...subscriber.houses[0], editable: false, streamerName: undefined }] } }));
+  assert.match(legacy, /View retained house/); assert.ok(!legacy.includes("Customize House")); assert.match(legacy, /name unavailable/);
+});
+
+test("dashboard denies anonymous identity before reads and keeps unavailable sections distinct from empty states", async () => {
+  const auth = fixture();
+  for (const id of [undefined, "forged"]) await assert.rejects(dashboardAccess(auth.service, () => { assert.fail("Private lookup before authentication"); }, id), (e: unknown) => (e as { code: string }).code === "unauthorized");
+  const { owner, town } = await create(); auth.twitch.identity = owner; auth.twitch.validation.userId = owner.twitchUserId;
+  const login = await auth.login();
+  const broken = new TownPersistenceService(repository);
+  broken.listOwnProperties = async () => { throw new PersistenceError("unavailable"); };
+  const partial = await dashboardAccess(auth.service, () => broken, login.id);
+  assert.equal(partial.town?.world.id, town.world.id); assert.equal(partial.housesUnavailable, true);
+  const html = renderToStaticMarkup(createElement(AccountDashboard, { data: partial }));
+  assert.match(html, /houses could not be loaded/); assert.ok(!html.includes("No houses are linked"));
+  const unavailable = await dashboardAccess(auth.service, () => { throw new PersistenceError("configuration"); }, login.id);
+  assert.equal(unavailable.townUnavailable, true); assert.equal(unavailable.housesUnavailable, true);
+  assert.ok(!renderToStaticMarkup(createElement(AccountDashboard, { data: unavailable })).includes("Create My Town"));
+  await auth.service.signOut(login.id, auth.service.csrfToken(login.id));
+  await assert.rejects(dashboardAccess(auth.service, () => service, login.id), (e: unknown) => (e as { code: string }).code === "unauthorized");
+});
+
+test("town visits render only existing public data and retain the selected town's customized appearance", async () => {
+  const f = await portalFixture(), p = f.properties[0];
+  await service.saveOwnExterior(f.member, p.townId, p.house.id, p.revision, { ...exteriorOf(p.house), houseName: "Public cottage", door: "rose" }, async () => {});
+  const view = publicVisitWorld(await service.publicTown(p.townId));
+  assert.equal(view.id, p.townId); assert.equal(view.mayor.name, "Mochi");
+  assert.deepEqual(view.residents, []); assert.deepEqual(view.processedEvents, []); assert.deepEqual(view.giftGroups, []);
+  const house = housesIn(view).find((h) => h.id === p.house.id)!;
+  assert.equal(house.ownerTwitchUserId, null); assert.equal(house.property?.customization.houseName, "Public cottage");
+  assert.equal(house.property?.customization.doorColor, colors.rose);
+  assert.ok(!JSON.stringify(view).includes('"subscription"'));
+  assert.ok(!JSON.stringify(view).includes('"ownerTwitchUserId":"'));
+  assert.equal(houseEditorPath(p.townId, "house/with?#chars"), `/my-houses/${p.townId}/house%2Fwith%3F%23chars`);
 });
 
 test("portal finds only the authenticated user's properties across multiple towns, including retained legacy homes", async () => {

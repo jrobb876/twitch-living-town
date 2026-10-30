@@ -29,7 +29,7 @@ const noSnapshot = () => {};
 const noMode = () => {};
 
 export default function StreamerWorkspace({ initialTown, csrfToken }: { initialTown: StoredTown | null; csrfToken: string }) {
-  return <main className="streamer-page"><nav className="houses-nav"><Link href="/">← Town Overview</Link><TwitchAccount /></nav>
+  return <main className="streamer-page"><nav className="houses-nav"><Link href="/dashboard">← Dashboard</Link><TwitchAccount /></nav>
     {initialTown ? <Dashboard initialTown={initialTown} csrfToken={csrfToken} /> : <Onboarding csrfToken={csrfToken} />}
   </main>;
 }
@@ -97,12 +97,12 @@ function Dashboard({ initialTown, csrfToken }: { initialTown: StoredTown; csrfTo
     <div className="workspace-actions"><Link className="account-button" href="/">Open Town Overview</Link><Link className="account-button" href="/my-houses">My Houses</Link><button className="account-button" onClick={() => void refresh()}>Refresh town status</button></div>
     {error && <p role="alert" className="account-error">{error}</p>}
     {notice && <p role="status" className="account-notice">{notice}</p>}
-    <div className="dashboard-grid"><TownPreview key={world.id} world={world} /><section className="workspace-card"><h2>Your town & Mayor</h2><TownSettings key={`${world.id}:${editor}`} town={town} csrfToken={csrfToken} onSaved={(saved) => { request.current?.abort(); setTown(saved); setEditor((n) => n + 1); setNotice("Your town and Mayor settings are saved."); }} onReload={() => { setNotice(""); void refresh(true); }} /></section></div>
+    <div className="dashboard-grid"><TownPreview key={world.id} world={world} /><section id="settings" className="workspace-card"><h2>Your town & Mayor</h2><TownSettings key={`${world.id}:${editor}`} town={town} csrfToken={csrfToken} onSaved={(saved) => { request.current?.abort(); setTown(saved); setEditor((n) => n + 1); setNotice("Your town and Mayor settings are saved."); }} onReload={() => { setNotice(""); void refresh(true); }} /></section></div>
     <section className="workspace-card"><h2>Bring your community to town</h2><p>These connections are optional. If permission is missing, use the authorization button below. If your Twitch session has expired, <Link href="/account">reconnect your account</Link>, then return here.</p>
       <ChatConnection mode="live" onMode={noMode} onSnapshot={noSnapshot} hasSavedTown showSourceControls={false} />
       <SubscriberHousing onPresentation={noPresentation} />
     </section>
-    <ObsSettings key={world.id} townId={world.id} csrfToken={csrfToken} />
+    <div id="obs"><ObsSettings key={world.id} townId={world.id} csrfToken={csrfToken} /></div>
   </>;
 }
 function TownSettings({ town, csrfToken, onSaved, onReload }: { town: StoredTown; csrfToken: string; onSaved: (town: StoredTown) => void; onReload: () => void }) {

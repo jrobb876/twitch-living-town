@@ -9,7 +9,7 @@ import { streamerAccess } from "@/lib/persistence/streamer-access";
 import { isPersistenceError, persistenceMessages } from "@/lib/persistence/types";
 import StreamerWorkspace from "./streamer-workspace";
 
-export default async function StreamerPage({ destination }: { destination: "/dashboard" | "/onboarding" }) {
+export default async function StreamerPage({ destination }: { destination: "/dashboard/town" | "/onboarding" }) {
   let access: Awaited<ReturnType<typeof streamerAccess>> | undefined;
   let message = "Your town could not be loaded. Please retry shortly.";
   let signIn = false;

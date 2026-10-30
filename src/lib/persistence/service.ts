@@ -26,7 +26,7 @@ export class TownPersistenceService {
   private propertyView(profile: AccountProfile, town: StoredTown, houseId: string): PropertyView {
     const house = housesIn(town.world).find((item) => item.id === houseId && item.ownerTwitchUserId === profile.twitchUserId);
     if (!house) throw new PersistenceError("forbidden");
-    return { townId: town.world.id, townName: town.world.name, revision: town.revision, house,
+    return { townId: town.world.id, townName: town.world.name, streamerTwitchUserId: town.world.streamerTwitchUserId, revision: town.revision, house,
       ownerName: profile.displayName, editable: canCustomize(town.world, house, profile.twitchUserId) };
   }
   async listOwnProperties(profile: AccountProfile) {

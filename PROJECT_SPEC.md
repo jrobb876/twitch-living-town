@@ -1,5 +1,13 @@
 # Twitch Living Town — Project specification
 
+## Unified account dashboard (Prompt 015)
+
+`/dashboard` is now the authenticated account landing page for streamers, subscribers, both or neither. Server authentication precedes private reads; town and cross-town property reads have independent error states. No placeholder world is generated while saved data loads. The existing management workspace is retained at `/dashboard/town`, with Mayor/settings and OBS anchors. `/account` remains the account page; basic OAuth success redirects to the dashboard only after persistence succeeds. Existing scope-upgrade destinations are preserved, and caller-selected login return paths are rejected.
+
+My Houses cards are shared between the hub and standalone portal, with town-scoped Visit/Edit links and on-demand existing house previews. Broadcaster ID comes from the owned property's town relationship; optional names come only from already validated, unexpired server-held profiles. Absent names fall back to the ID without granting profile-table access. `/towns/[townId]` consumes the existing public projection for a read-only renderer; resident/owner identities and private metadata never enter its props. Live activity is still on the existing Overview/OBS surfaces.
+
+No new account roles, SQL migration, OAuth scope, subscriber policy, Extension, or synchronization change is introduced. House editing still depends on fresh verification through the correct broadcaster's authorized session. The remaining broader Extension/grant-lifetime work in MULTI_TOWN_AUDIT.md is deferred.
+
 ## Expanded OBS demo (Prompt 012)
 
 `/demo/obs-preview` is a separate local development surface requiring explicit `TOWN_DEMO_MODE=true`, a localhost/127.0.0.1 host and public mode disabled. Production always returns 404. It generates exactly 25/50/100/200 fictional subscriber houses using existing allocation/expansion and customization rules. Seed/count determine the world; no account, persistence, subscriber reconciliation or production OBS access path is involved. Reset returns to the existing Overview, whose saved data is unchanged.
