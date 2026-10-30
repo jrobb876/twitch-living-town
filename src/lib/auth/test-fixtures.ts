@@ -26,8 +26,9 @@ export class FakeTwitch implements TwitchGateway {
   }
   async revoke(token: string) { this.revocations.push(token); }
 }
-export function fixture(production = false) {
-  const config = parseAuthConfig({ ...testEnv, ...(production ? { NODE_ENV: "production", TWITCH_REDIRECT_URI: "https://town.example/api/auth/twitch/callback" } : {}) });
+export function fixture(production = false, redirectUri?: string) {
+  const config = parseAuthConfig({ ...testEnv, ...(production ? { NODE_ENV: "production", TWITCH_REDIRECT_URI: "https://town.example/api/auth/twitch/callback" } : {}),
+    ...(redirectUri ? { TWITCH_REDIRECT_URI: redirectUri } : {}) });
   const twitch = new FakeTwitch(), store = new MemoryAuthStore();
   let clock = 1_000_000;
   const service = new AuthService(config, twitch, store, () => clock);

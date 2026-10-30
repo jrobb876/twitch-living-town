@@ -2,6 +2,8 @@
 
 A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-independent event simulation and Mochi, its cat-like Mayor. The Town Overview supports Twitch login, real chat, persistent Supabase towns, verified subscriber imports and live subscription housing. Other community events remain simulated in an isolated demo.
 
+**Public deployment:** see [DEPLOYMENT.md](DEPLOYMENT.md) for the readiness assessment, Render/Railway comparison, environment checklist, manual migrations, HTTPS/OBS checks and restart/rollback procedures. Prompt 011A adds durable encrypted authentication, API rate budgets and `/api/health`. Public hosting requires one continuously running Node process, migration 006 and `AUTH_STORAGE=supabase`; no deployment or live migration has been performed.
+
 ## Run locally
 
 Use Node.js 22 or newer and npm. From PowerShell:
@@ -42,7 +44,7 @@ Restart `npm run dev` after configuring environment variables. Use **http://loca
 3. Reload `/account`: you should remain signed in. `/api/auth/session` returns only public profile fields and a logout CSRF value, never OAuth tokens. In Chrome Application → Cookies, `living-town-session` should be opaque, HttpOnly, SameSite=Lax and scoped to `/`. It is deliberately not Secure on local HTTP; production uses Secure `__Host-` cookies.
 4. Select **Sign out**: the account disappears and `/api/auth/session` shows `user: null`. This signs out of Living Town, not Twitch's own website.
 5. Start another login and cancel at Twitch. A safe cancellation message should appear. Visiting `/api/auth/twitch/callback` without parameters should report an unverifiable attempt; start again via the button. A callback URL can be used only once; do not share or save its code/state.
-6. To check revocation, connect, then remove Living Town in your Twitch connections settings. The server detects revocation at its next validation (normally within 31 minutes), and the account UI refreshes on window focus or every five minutes. Restarting the Node server also invalidates all local sessions immediately. An idle session expires absolutely after eight hours.
+6. To check revocation, connect, then remove Living Town in your Twitch connections settings. The server detects revocation at its next validation (normally within 31 minutes), and the account UI refreshes on window focus or every five minutes. Restarting clears sessions in the default local memory mode. Supabase auth mode restores unexpired sessions and validates them again. An idle session expires absolutely after eight hours.
 
 Automated tests use synthetic credentials and mocked Twitch responses. A real Twitch login and browser interaction testing are intentionally left to you.
 
@@ -62,17 +64,23 @@ Known AuthError categories are recognized by their allowlisted name/code across 
 
 ### Session storage and deployment
 
-Auth currently requires **one continuously running Node process**. Opaque 256-bit cookie IDs refer to server-memory records; only HMAC digests of IDs are stored. Access/refresh tokens are AES-256-GCM encrypted using keys derived from `SESSION_SECRET`. OAuth state is browser-bound, single-use and expires after ten minutes. No credentials or tokens enter browser storage, client bundles or public session responses. Tokens are held transiently in plaintext only while making server-side Twitch requests.
+Logout uses a fixed same-origin fetch with browser-generated Origin, session-bound CSRF and HttpOnly cookies. The global `Referrer-Policy: no-referrer` remains enabled: native form navigation can send `Origin: null` under that policy, which the server rejects before touching the session. The fetch explicitly uses CORS mode with same-origin credentials and rejects redirects; this does not enable cross-origin access. Only confirmed JSON success navigates to the signed-out page. Missing/null/foreign origins remain rejected. See the [Fetch Origin algorithm](https://fetch.spec.whatwg.org/#append-a-request-origin-header).
 
-Validation runs on login, startup re-entry, stale session reads, and a background timer every minute with a 30-minute freshness threshold, inside Twitch's hourly requirement. The owner guard forces fresh validation. Expired tokens are refreshed after Twitch rejects them, with rotated refresh tokens retained; unexpected revocation or unverifiable identity ends affected sessions. A Twitch validation outage fails closed and requires reconnection. Sign-out removes local sessions first and attempts revocation; encrypted pending revocations retry for up to an hour while the process remains running.
+To verify Prompt 011C in Chrome: stop the old server, run `npm run build` and `npm start`, then reload `http://localhost:3000/account`. With `AUTH_STORAGE=supabase` and migration 006 already manually applied, sign in if necessary. In DevTools Network, enable Preserve log and click Sign out. Expect POST `/api/auth/logout`, `Origin: http://localhost:3000`, mode `cors`, HTTP 200 and `{"signedOut":true}`, followed by navigation to `/account?auth=signed_out`. The response expires the Secure/HttpOnly `__Host-living-town-session` cookie; Application → Cookies should show it removed. `/api/auth/session` must return `user:null`. Restart `npm start` and reload: remain signed out. Also test signing in, restarting while signed in, and then signing out. Do not share cookie, CSRF or callback values. A prior 403 caused by null Origin did not revoke the session; normal expiry or independent revocation can still change its later state.
 
-Session/state/revocation records disappear on restart; no tokens are persisted to disk. The prototype caps active sessions at 200 and pending login attempts at 1,000. Multiple replicas, serverless suspension and durable sessions require shared storage with atomic state consumption, refresh coordination and a scheduled validation worker before deployment. Town mutations check authenticated ownership against the trusted repository; login alone grants no administration rights.
+Auth requires **one continuously running Node process**. Opaque 256-bit cookie IDs refer to server records; only HMAC digests of IDs are stored. Access/refresh tokens are AES-256-GCM encrypted using keys derived from `SESSION_SECRET`. Localhost defaults to `AUTH_STORAGE=memory`. Public production requires `AUTH_STORAGE=supabase`, which saves sessions and encrypted revocation work through private RPCs from migration 006. OAuth state remains browser-bound, memory-only, single-use and expires after ten minutes. No credentials or tokens enter browser storage, client bundles or public session responses. Tokens are held transiently in plaintext only while making server-side Twitch requests.
 
-For production authentication, register an **HTTPS** callback and configure `TWITCH_REDIRECT_URI` accordingly; plain HTTP is rejected in production. `npm start` over local HTTP remains useful for checking the town, but local OAuth testing should use `npm run dev`. Changing `SESSION_SECRET` requires a full process restart and invalidates sessions. Keep reverse-proxy/hosting access logs from recording callback query strings, authorization headers or token bodies. Next development callback request logging is suppressed in `next.config.ts`; infrastructure logging is configured separately.
+Validation runs on login, startup re-entry, stale session reads, and a background timer every minute with a 30-minute freshness threshold, inside Twitch's hourly requirement. The owner guard forces fresh validation. Expired tokens are refreshed after Twitch rejects them, with rotated refresh tokens retained; unexpected revocation or unverifiable identity ends affected sessions. A temporary validation outage denies access without erasing credentials or the browser cookie; a successful validation is required before access resumes. Sign-out persists session deletion before reporting success and attempts revocation; encrypted pending revocations retry for up to an hour, including after a restart in durable mode.
+
+In durable mode, keep the same `SESSION_SECRET` across restarts. A new process restores unexpired sessions and fences previous auth writers. Do not run replicas, cluster mode, or local/staging durable-auth processes against production storage. Interrupted OAuth attempts must be restarted, and EventSub connections must be manually reconnected; saved sessions do not automatically recreate sockets. The prototype caps active sessions at 200 and pending login attempts at 1,000. Town mutations check authenticated ownership against the trusted repository; login alone grants no administration rights. Follow the recovery procedure in [DEPLOYMENT.md](DEPLOYMENT.md).
+
+For publicly deployed production authentication, register an **HTTPS** callback and configure `TWITCH_REDIRECT_URI` accordingly. The exact `localhost` hostname is the only HTTP exception, including under `npm start`: the registered `http://localhost:3000/api/auth/twitch/callback` works for local production testing in Chrome. Production still uses Secure, HttpOnly, SameSite=Lax `__Host-` cookies; Chrome supports Secure cookies on localhost ([cookie documentation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie)). Do not substitute a LAN address, `127.0.0.1`, a localhost subdomain or a public HTTP host. Changing server configuration requires a full process restart. Memory-mode sessions are lost; durable sessions survive with the same session secret and Twitch application configuration. Keep reverse-proxy/hosting access logs from recording callback query strings, authorization headers or token bodies. Next development callback request logging is suppressed in `next.config.ts`; infrastructure logging is configured separately.
+
+Production-local verification: stop the previous server, run `npm run build` then `npm start`, and open `http://localhost:3000/api/auth/session` in Chrome. Expect HTTP 200 and `configured: true` (signed-out `user: null` is normal). Open `/account`, connect with Twitch, then reload and verify you remain signed in. Under Application → Cookies, confirm `__Host-living-town-session` is Secure, HttpOnly, SameSite=Lax, Path `/`, with no Domain. Test sign-out. Do not share callback URLs, cookie values or CSRF values. The earlier production-only failure was callback validation rejecting HTTP localhost, not missing environment variables or build-time secret caching; no environment or Twitch app change is needed for this correction.
 
 ## Connect real Twitch chat (Prompt 004)
 
-No additional environment variables, webhook tunnel, worker command or dependencies are needed. EventSub runs on the server in the same continuously running Node process as the existing in-memory auth service. **Fully restart the development server after upgrading this code**, then use `npm run dev`. Hot reloads reuse a process-wide connection manager rather than creating duplicate sockets; restart after changing auth/connection internals so retained instances load the new code.
+No additional environment variables, webhook tunnel, worker command or dependencies are needed. EventSub runs on the server in the same continuously running Node process as the auth service (memory locally, Supabase-backed in public production). **Fully restart the development server after upgrading this code**, then use `npm run dev`. Hot reloads reuse a process-wide connection manager rather than creating duplicate sockets; restart after changing auth/connection internals so retained instances load the new code.
 
 1. Sign in to **Living Town** with the Twitch account whose own channel you want to connect. Return to the Town Overview. Existing basic sessions show **Chat permission: not granted**.
 2. In the **Twitch chat** panel, select **Authorize Twitch Chat** and approve `user:read:chat` for that same account. Declining keeps chat disconnected; switching accounts during this authorization is rejected. Successful authorization returns to the town with **Chat permission: authorized**.
@@ -86,7 +94,7 @@ Live source is a personal channel preview, not ownership of any other town. Only
 
 The server maps Twitch message IDs into the existing `CHAT_MESSAGE` processor and namespaces towns by broadcaster ID. Readable message text is used only transiently for validation/normalization, then replaced with a keyed fingerprint for the existing repeated-text rule. Fingerprints and chatter IDs expire with the 60-second activity window. The browser receives only activity sample ages, channel identity, status, count and last-event time—not chat text, chatter IDs, credentials or tokens. Live delivery IDs are retained for ten minutes (up to 10,000); the live outcome ledger is capped at 1,000 and activity samples at 2,000. Events older than ten minutes are ignored; full dedup capacity drops new events until space expires. The development simulator retains its existing synthetic ledger behavior.
 
-Limitations: sessions, connections and live activity are in memory; restart signs users out and requires reconnecting. At most 100 channel entries are maintained; inactive entries expire after ten minutes without status requests. This is for one long-running Node process, not serverless/Edge or multiple replicas. Moving to a worker or multi-streamer deployment will require shared encrypted auth storage, connection ownership/leases, distributed deduplication, validation scheduling and durable town ownership. Twitch does not replay messages lost during an ordinary disconnect. Browser updates currently use one-second authenticated polling; there is no Socket.IO or public event-writing endpoint. Production still requires HTTPS OAuth configuration.
+Limitations: sessions, connections and live activity are in memory; restart signs users out and requires reconnecting. At most 100 channel entries are maintained; inactive entries expire after ten minutes without status requests. This is for one long-running Node process, not serverless/Edge or multiple replicas. Moving to a worker or multi-streamer deployment will require shared encrypted auth storage, connection ownership/leases, distributed deduplication, validation scheduling and durable town ownership. Twitch does not replay messages lost during an ordinary disconnect. Browser updates currently use one-second authenticated polling; there is no Socket.IO or public event-writing endpoint. Public production deployments require HTTPS OAuth configuration; exact localhost HTTP is supported for local production testing.
 
 Protocol references: [EventSub WebSockets](https://dev.twitch.tv/docs/eventsub/handling-websocket-events/), [channel.chat.message authorization](https://dev.twitch.tv/docs/eventsub/eventsub-subscription-types/#channelchatmessage), and [Create EventSub Subscription](https://dev.twitch.tv/docs/api/reference/#create-eventsub-subscription).
 
@@ -204,7 +212,7 @@ Run `npm run dev`, open http://localhost:3000 and expand **Event simulator** bel
 6. **Incoming raid:** Town Hall welcomes 25 temporary visitors for 20 seconds; house/resident counts stay unchanged.
 7. **Reset demo town:** clear events, owners, residents and activity while keeping the seed. **Regenerate town** also changes the seed. Reload restores the starter demo.
 
-Production builds hide the simulator by default. For an explicitly authorized demo, set `TOWN_DEMO_MODE=true` in the build environment before `npm run build`. Rebuild with it unset or `false` to disable again. Setting it only at `npm start` does not change a previously prerendered page. This flag grants no backend privileges; there is no event mutation endpoint.
+Production builds hide the simulator by default. For an isolated local demo with `PUBLIC_DEPLOYMENT=false`, set `TOWN_DEMO_MODE=true` in the build environment before `npm run build`. Rebuild with it unset or `false` to disable again. Setting it only at `npm start` does not change a previously prerendered page. This flag grants no backend privileges; there is no event mutation endpoint.
 
 The browser needs WebGL and hardware acceleration. A loading state and retryable error message cover renderer startup failures. Town artwork uses local procedural graphics or inline SVG, with no art downloads or external font requests. Signed-in profile pictures load from Twitch's image CDN.
 
@@ -218,7 +226,7 @@ npm run build
 npm start
 ```
 
-`npm start` serves the production build at http://localhost:3000 (see the HTTPS requirement for production authentication above). Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, simulation, OAuth state/callback failures, session cookies and encryption, expiry, validation/refresh/revocation, and tenant ownership guards. No tests contact Twitch or read local credentials.
+`npm start` serves the production build at http://localhost:3000 (the exact localhost HTTP exception supports local authentication; public deployments require HTTPS). Stop a running server with Ctrl+C before starting another on that port. `typecheck` generates Next.js route types before checking TypeScript. Tests cover generation, simulation, OAuth state/callback failures, session cookies and encryption, expiry, validation/refresh/revocation, and tenant ownership guards. No automated unit tests contact Twitch or read local credentials.
 
 Tests include all four migrations in disposable PostgreSQL, concurrent allocation/rollback/RLS, subscriber imports, housing/customization lifecycle, mocked EventSub, auth, town generation and live/demo separation. Expansion tests include 360 and 495 logical subscribers, connected paths, stable properties, camera bounds, and a mid-projection database failure. They do not read credentials or contact Twitch/Supabase. Applying outstanding migrations to your Supabase project and browser interaction checks remain manual; no browser automation is performed. See TASKS.md for validation results.
 
@@ -245,7 +253,7 @@ src/components/event-simulator.tsx  Local simulated-event controls
 src/components/twitch-account.tsx   Connect/sign-out controls and public profile
 src/app/account/page.tsx            Account screen and safe auth feedback
 src/app/api/auth/                   Login, callback, session and POST logout routes
-src/lib/auth/                      OAuth client, encrypted memory sessions, HTTP handlers, ownership guard and tests
+src/lib/auth/                      OAuth client, encrypted memory/durable sessions, HTTP handlers, ownership guard and tests
 src/lib/chat/                      EventSub lifecycle, mapping, shared manager, activity projection and tests
 src/app/api/chat/                  Authenticated status and POST authorize/start/stop endpoints
 src/components/chat-connection.tsx Connection panel and one-second activity polling
@@ -292,7 +300,7 @@ At most 24 resident actors animate; paths use cached node maps. Offscreen homes,
 
 Next.js 16 App Router, React 19, strict TypeScript, Tailwind CSS 4, ESLint and PixiJS 8. Exact versions are captured in `package-lock.json`. The application is initialized directly in the repository root.
 
-See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat/subscriptions, distributed realtime services, advanced management tools and the OBS overlay are deferred.
+See [PROJECT_SPEC.md](PROJECT_SPEC.md), [TASKS.md](TASKS.md) and [DECISIONS.md](DECISIONS.md) for the roadmap and architecture. Twitch events beyond chat/subscriptions, distributed realtime services and advanced management tools are deferred. OBS presentation is implemented in Prompt 010 below.
 
 ## Streamer onboarding and dashboard (Prompt 009)
 
@@ -329,3 +337,74 @@ Wizard drafts are not saved across reloads. Dashboard status refreshes on focus,
 Authentication references: [Twitch authorization code flow](https://dev.twitch.tv/docs/authentication/getting-tokens-oauth/#authorization-code-grant-flow), [required token validation](https://dev.twitch.tv/docs/authentication/validate-tokens/), [refresh](https://dev.twitch.tv/docs/authentication/refresh-tokens/), [revocation](https://dev.twitch.tv/docs/authentication/revoke-tokens/), and [Get Users](https://dev.twitch.tv/docs/api/reference/#get-users).
 
 Implementation references: [Next.js installation](https://nextjs.org/docs/app/getting-started/installation), [PixiJS application lifecycle](https://pixijs.com/8.x/guides/components/application), [PixiJS graphics](https://pixijs.com/8.x/guides/components/scene-objects/graphics), and [Tailwind with Next.js](https://tailwindcss.com/docs/installation/framework-guides/nextjs).
+
+## OBS integration (Prompt 010)
+
+**Manual migration required:** review and apply [202610290005_obs_display.sql](supabase/migrations/202610290005_obs_display.sql) once after 001–004, using the same trusted database administrator. Run the complete file as one transaction. It creates only display configuration/access storage and two restricted RPCs; it does not rewrite town snapshots, houses, layouts, customizations or Mayor settings. An accidental full-file rerun fails at the existing table and rolls back. Do not bypass that error by executing fragments. Tests use disposable PostgreSQL; no live database is accessed or migrated automatically.
+
+No additional dependencies, environment variables, OAuth scopes or credentials are required. Keep the existing server-only configuration. From `F:\Development\TwitchLivingTown` run:
+
+```powershell
+npm install
+npm run build
+npm start
+```
+
+For development use `npm run dev` instead of build/start. Production mode avoids development indicators in the capture. Keep the backend running on a machine OBS can reach. For OBS on the same computer, `http://localhost:3000` works. A different computer needs the application's reachable HTTPS address and matching existing deployment/OAuth configuration; its `localhost` is not your server.
+
+### Add the Browser Source
+
+1. Sign in as the town owner, open **My town → Dashboard**, and connect live chat (and subscriber events if desired) through the existing controls. Wait for confirmed subscription readiness. OBS never initiates OAuth or grants permissions.
+2. In **OBS & Stream Display**, select **Living Town**, then **Save display preferences**. Click **Generate OBS URL** (or **Regenerate OBS access** if already configured).
+3. Click **Preview OBS Display** to open the exact read-only scene in Chrome. It shows your saved town with no site navigation or dashboard controls. Check smooth neighborhood camera following and the status chip. The private key is in the URL fragment; no Twitch cookie or token is needed by this scene.
+4. Click **Copy OBS Browser Source URL**. In OBS Studio, add **Sources → + → Browser**, name it Living Town, leave **Local file** unchecked, and paste the entire URL including `#key=…` into **URL**. Set **Width 1920**, **Height 1080**, and **FPS 30** (60 is optional). Leave the default transparent browser-source CSS in place. Fit the source to your scene.
+5. For uninterrupted presentation when switching scenes, leave **Shutdown source when not visible** and **Refresh browser when scene becomes active** unchecked. Enabling them is supported, but recreates local movement state and reloads the saved world each time. 1280×720 is also supported.
+6. Close the dashboard. The OBS source should continue animating and receiving already-connected backend activity. The bottom-right chip distinguishes live chat/message count from disconnected chat and backend failures.
+
+The URL is a **private, revocable read-only key**, not an administrator login. Keep it out of public chats, screenshots and shared OBS exports. Only its SHA-256 hash is stored; the raw URL is shown once per generation and is not recoverable after dashboard reload. Copy it while available, or regenerate and update OBS. Regeneration invalidates every old source using the former URL. **Revoke access** disables it without changing the saved preferences or town. Connected sources clear their scene on the next successful authorization poll (normally within three seconds). No automatic key expiry interrupts a stream; rotate/revoke from the dashboard when needed.
+
+### Test both modes and live updates manually
+
+1. **Living Town:** let the Mayor walk, check smooth framing, and send a fresh real message in the exact connected broadcaster channel. The message count should increase; accepted activity raises movement speed according to existing cooldown/decay rules. Broadcaster messages count too. Closing the dashboard must not stop the stream display.
+2. **Mayor Spotlight:** select Spotlight, choose left and full-town background, save, then repeat with right. The same configured Mayor should appear enlarged with gentle idle/tail motion. Test the scale slider at 0.5× and 1.5×. Change the Mayor's appearance/personality through existing settings and verify the scene updates without moving houses. The background uses all current district bounds for uniform crop-to-fill framing; outer scenery may be cropped to avoid letterboxing.
+3. Select **Transparent · Mayor only**, save, and place a colored/image source underneath the Browser Source in OBS. It should show through the background. The small status chip intentionally remains for source diagnostics. Living Town always uses the town background, regardless of the retained Spotlight background preference.
+4. With existing verified subscriber synchronization/events, confirm new houses/customized exteriors and expansion appear after polling. Existing committed subscriber/resub/gift/expansion presentations can show brief generic feedback. Do not inject synthetic production events. Raid/Bits/donation reaction types are future hooks, not new live integrations.
+5. Stop the backend briefly: OBS should retain its last saved view, show **Backend unavailable**, and let existing activity fade without generating messages. Restart the backend: saved visuals and OBS access recover automatically. Reconnect Twitch from the dashboard after a process restart/session expiry; the overlay should report disconnected chat until that succeeds.
+6. Regenerate the URL: the old OBS source should clear and report invalid/revoked access. Paste the new URL and refresh the source. Revoke it and confirm access stops again. Another logged-in viewer cannot change the owner's display settings or use the URL to administer a town.
+7. Revisit the normal Overview and verify pan, zoom, Fit Town, Mayor movement, live activity and demo regeneration. No OBS preferences affect the Overview's interactive camera.
+
+OBS polls every three seconds after each completed request, sending only aggregated activity and refreshed display settings when world revision is unchanged. Revision changes include saved visual geometry. Each OBS view advances one local transient runtime; separate views need not place the Mayor at identical coordinates. Four anonymous scenery actors are not new Twitch residents. Reactions expire and are not a historical replay service. On a network outage the last received world is retained; revoked access can only be observed when the backend is reachable again.
+
+The existing single-process live-connection/session limits still apply: use one continuously running Node backend. Shared/distributed live workers, browser GPU performance profiling at the largest town sizes, elaborate animations and further Twitch event types remain future work. Validation commands are `npm run lint`, `npm run typecheck`, `npm test`, `npm run build`, and `git diff --check`. No browser automation, live database modification, commit or push is performed by this milestone.
+
+### Full-viewport OBS verification (Prompt 010C)
+
+The OBS `<main>` previously inherited the site's `max-width: 1800px`, horizontal padding of 4.2%, and auto margins. Its canvas correctly measured that constrained container, leaving uncovered viewport strips. OBS now explicitly removes those constraints only on `.obs-root`. Spotlight also uses uniform crop-to-fill instead of the Overview's padded Fit Town framing. Living Town keeps its close follow camera; the existing sage terrain backdrop covers world-edge gaps and unbuilt areas without stretching or relocating anything. Transparent mode still hides both town and terrain; the intentional status chip remains visible.
+
+1. Stop the old server with Ctrl+C. In the project root run `npm run build`, then `npm start`. No migration, environment change or new OBS URL is needed.
+2. Open the existing private OBS URL in Chrome and reload it. Resize the window, including a tall/narrow shape; expect no scrollbars or uncovered side strips. The scene follows the viewport rather than a centered site column. Keep the private URL out of shared screenshots.
+3. In OBS, open the Browser Source **Properties**, set Width **1920**, Height **1080**, FPS **30**, and click **Refresh cache of current page** after rebuilding. Keep the complete existing URL. Confirm the source's own boundaries contain no black/white margins; Transform → Fit to Screen only adjusts the source inside your OBS composition.
+4. Save **Living Town** in the dashboard. Watch the Mayor walk and follow near outer edges and expanded neighborhoods. Houses must retain their proportions and positions, with no camera shaking or exposed transparent sidebars.
+5. Save **Mayor Spotlight** with town background. Test left and right placement, then scale 0.5×, 1× and 1.5×. The Mayor must stay fully visible. Some outer town scenery is intentionally cropped, with no nonuniform stretching.
+6. Change Browser Source dimensions to **1280×720**, refresh, and repeat both modes and both sides. Also resize Chrome. No town regeneration or new rendering instance should be needed for resizing.
+7. Save **Transparent · Mayor only**. Put a colored source below it in OBS: it should show through everywhere except the Mayor and intentional status/foreground elements. Switch back to town background and confirm full coverage returns.
+8. Return to the normal Overview and dashboard: their original page margins, interactive camera and Fit Town behavior remain intact.
+
+For a manual dimension check in Chrome DevTools Console, run the following on the overlay page. It reports only dimensions, never the private URL or token. The canvas CSS bounds should match the host and viewport; buffer dimensions should be CSS size multiplied by the capped device pixel ratio (up to rounding).
+
+```js
+(() => {
+  const host = document.querySelector('.obs-canvas');
+  const canvas = host.querySelector('canvas');
+  const rect = canvas.getBoundingClientRect();
+  return {
+    viewport: [innerWidth, innerHeight],
+    host: [host.clientWidth, host.clientHeight],
+    canvasCSS: [rect.x, rect.y, rect.width, rect.height],
+    buffer: [canvas.width, canvas.height],
+    expectedDensity: Math.min(devicePixelRatio || 1, 2)
+  };
+})();
+```
+
+Automated regression tests cover the stylesheet boundary, CSS-pixel/density sizing, uniform cover/follow camera calculations, expanded bounds and foreground visibility/transparency across resize. Actual browser layout, GPU rendering and OBS compositing remain manual checks; no browser automation is used.

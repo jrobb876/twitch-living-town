@@ -30,6 +30,9 @@ import { colors, exteriorOf } from "../houses/customization";
 import { addDistrict } from "../simulation/expansion";
 import { streamerAccess } from "./streamer-access";
 import { personalityFor, mayorLooks, personalityNames } from "../mayor/presets";
+import { OverlayService, hashOverlayToken } from "../overlay/service";
+import { defaultDisplay, offlineActivity } from "../overlay/model";
+import { createOverlayHandlers } from "../overlay/http";
 
 const db = new PGlite();
 before(async () => {
@@ -38,6 +41,8 @@ before(async () => {
   await db.exec(await readFile("supabase/migrations/202610280002_subscriber_housing.sql", "utf8"));
   await db.exec(await readFile("supabase/migrations/202610280003_house_portal.sql", "utf8"));
   await db.exec(await readFile("supabase/migrations/202610290004_neighborhood_expansion.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/202610290005_obs_display.sql", "utf8"));
+  await db.exec(await readFile("supabase/migrations/202610290006_durable_auth.sql", "utf8"));
 });
 after(async () => { await db.close(); });
 // Actual PostgreSQL transactions/constraints; no network, env credentials or live DB.
@@ -55,6 +60,89 @@ const profile = () => ({ twitchUserId: String(nextUser++), displayName: "Synthet
 const create = async () => { const owner = profile(); return { owner, town: await service.create(owner, { name: "Test town", mayorName: "Mochi", seed: 42 }) }; };
 const event = (townId: string, user = profile(), id = randomUUID()): Extract<DurableEvent, { type: "NEW_SUBSCRIBER" }> => ({ type: "NEW_SUBSCRIBER", id, townId, occurredAt: NOW, user: { twitchUserId: user.twitchUserId, displayName: user.displayName } });
 const code = (expected: string) => (error: unknown) => error instanceof PersistenceError && error.code === expected;
+
+test("OBS preferences and hashed grants persist separately; rotate/revoke isolate tenants and preserve expanded worlds", async () => {
+  const { owner, town } = await create(), other = await create();
+  const overlay = new OverlayService(rpc, service, offlineActivity, () => []);
+  const settings = { ...defaultDisplay, mode: "spotlight" as const, background: "transparent" as const, side: "right" as const, scale: 1.3 };
+  assert.deepEqual(await overlay.status(owner, town.world.id), { enabled: false, settings: defaultDisplay });
+  await overlay.manage(owner, { action: "save", townId: town.world.id, settings });
+  const grant = await overlay.manage(owner, { action: "rotate", townId: town.world.id });
+  assert.match(grant.token!, /^[A-Za-z0-9_-]{43}$/);
+  const storedHash = (await db.query<{ token_hash: string }>("select token_hash from public.living_town_displays where town_id=$1", [town.world.id])).rows[0].token_hash;
+  assert.equal(storedHash, hashOverlayToken(grant.token!)); assert.notEqual(storedHash, grant.token);
+  const restarted = new OverlayService(rpc, service, offlineActivity, () => []);
+  assert.deepEqual(await restarted.status(owner, town.world.id), { enabled: true, settings });
+  assert.deepEqual(await service.mine(owner), town, "OBS writes never touch canonical town or revision");
+  await assert.rejects(overlay.status(other.owner, town.world.id), code("forbidden"));
+  await assert.rejects(overlay.manage(other.owner, { action: "rotate", townId: town.world.id }), code("forbidden"));
+  await assert.rejects(overlay.read(other.town.world.id, grant.token!, null), code("forbidden"));
+  await assert.rejects(overlay.read(town.world.id, "malformed", null), code("forbidden"));
+  const full = await overlay.read(town.world.id, grant.token!, null);
+  assert.equal(full.world!.id, town.world.id); assert.deepEqual(full.settings, settings);
+  assert.equal((await overlay.read(town.world.id, grant.token!, full.revision)).world, undefined);
+  for (let i = 0; i < 11; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) });
+  const expanded = await overlay.read(town.world.id, grant.token!, full.revision);
+  assert.equal(expanded.world!.plots.length, 26); assert.deepEqual(expanded.settings, settings);
+  const rotated = await overlay.manage(owner, { action: "rotate", townId: town.world.id });
+  await assert.rejects(overlay.read(town.world.id, grant.token!, expanded.revision), code("forbidden"));
+  assert.equal((await overlay.read(town.world.id, rotated.token!, expanded.revision)).world, undefined);
+  const saved = await service.mine(owner);
+  await overlay.manage(owner, { action: "revoke", townId: town.world.id });
+  await assert.rejects(overlay.read(town.world.id, rotated.token!, expanded.revision), code("forbidden"));
+  assert.deepEqual(await service.mine(owner), saved); assert.deepEqual(await service.mine(other.owner), other.town);
+  assert.deepEqual(await overlay.status(owner, town.world.id), { enabled: false, settings });
+});
+
+test("OBS HTTP requires owner session and CSRF for management; bearer grants only allow read-only visual access", async () => {
+  const f = fixture(), owner = profile(); f.twitch.identity = owner; f.twitch.validation.userId = owner.twitchUserId;
+  const login = await f.login(), town = await service.create(owner, { name: "OBS town", mayorName: "Nori" }), other = await create();
+  const overlay = new OverlayService(rpc, service, offlineActivity, () => []), handlers = createOverlayHandlers(() => f.service, () => overlay, false);
+  const body = { townId: town.world.id, action: "rotate" };
+  const request = (value: unknown, headers: Record<string, string> = {}) => new NextRequest("http://localhost:3000/api/town/display", { method: "POST",
+    headers: { cookie: `${cookieNames(false).session}=${login.id}`, origin: f.config.origin, "content-type": "application/json", "x-csrf-token": f.service.csrfToken(login.id), ...headers }, body: JSON.stringify(value) });
+  assert.equal((await handlers.manage(request(body, { cookie: "" }))).status, 401);
+  assert.equal((await handlers.manage(request(body, { "x-csrf-token": "bad" }))).status, 403);
+  assert.equal((await handlers.manage(request(body, { origin: "https://other.example" }))).status, 403);
+  assert.equal((await handlers.manage(request({ ...body, townId: other.town.world.id }))).status, 403);
+  assert.equal((await handlers.manage(request({ ...body, ownerId: other.owner.twitchUserId }))).status, 400);
+  assert.equal((await handlers.manage(request({ action: "save", townId: town.world.id, settings: { ...defaultDisplay, world: town.world } }))).status, 400);
+  const response = await handlers.manage(request(body)), grant = await response.json(); assert.equal(response.status, 200);
+  const context = { params: Promise.resolve({ townId: town.world.id }) };
+  const read = (key: string) => new NextRequest(`http://localhost:3000/api/overlay/${town.world.id}`, { headers: { authorization: `Bearer ${key}` } });
+  assert.equal((await handlers.manage(request(body, { cookie: "", authorization: `Bearer ${grant.token}` }))).status, 401);
+  assert.equal((await handlers.read(read(""), context)).status, 403);
+  const success = await handlers.read(read(grant.token), context); assert.equal(success.status, 200);
+  assert.match(success.headers.get("cache-control")!, /no-store/); assert.equal(success.headers.get("vary"), "Authorization");
+  const payload = JSON.stringify(await success.json());
+  for (const privateValue of [grant.token, login.id, '"csrfToken"', owner.twitchUserId, "test-access", "test-refresh"]) assert.ok(!payload.includes(privateValue));
+  await handlers.manage(request({ ...body, action: "revoke" })); assert.equal((await handlers.read(read(grant.token), context)).status, 403);
+  const unavailable = createOverlayHandlers(() => f.service, () => new OverlayService(async () => { throw new Error("private network detail"); }, service, offlineActivity, () => []), false);
+  const failure = await unavailable.read(read(grant.token), context); assert.equal(failure.status, 503);
+  assert.ok(!(await failure.text()).includes("private network detail"));
+});
+
+test("migration 005 grants only trusted RPC execution, rejects invalid SQL settings and rolls back accidental reruns", async () => {
+  const { owner, town } = await create();
+  for (const role of ["anon", "authenticated", "service_role"]) {
+    const result = (await db.query<{ table_access: boolean; manage: boolean; read: boolean }>(`select
+      has_table_privilege($1,'public.living_town_displays','SELECT,INSERT,UPDATE,DELETE') table_access,
+      has_function_privilege($1,'public.living_town_display_manage(text,uuid,text,jsonb,text)','EXECUTE') manage,
+      has_function_privilege($1,'public.living_town_display_read(uuid,text)','EXECUTE') read`, [role])).rows[0];
+    assert.equal(result.table_access, false); assert.equal(result.manage, role === "service_role"); assert.equal(result.read, role === "service_role");
+  }
+  await db.exec("set role service_role");
+  try {
+    assert.equal((await rpc("living_town_display_manage", { p_id: town.world.id, p_owner: "not-owner", p_action: "rotate", p_hash: "a".repeat(64) })).error?.code, "LT403");
+    assert.equal((await rpc("living_town_display_manage", { p_id: town.world.id, p_owner: owner.twitchUserId, p_action: "rotate", p_hash: "a".repeat(64) })).error, null);
+    assert.equal((await rpc("living_town_display_read", { p_id: town.world.id, p_hash: "a".repeat(64) })).error, null);
+    assert.equal((await rpc("living_town_display_manage", { p_id: town.world.id, p_owner: owner.twitchUserId, p_action: "save", p_settings: { ...defaultDisplay, mode: null } })).error?.code, "23514");
+  } finally { await db.exec("reset role"); }
+  const before = (await db.query("select * from public.living_town_displays where town_id=$1", [town.world.id])).rows;
+  await assert.rejects(db.exec(await readFile("supabase/migrations/202610290005_obs_display.sql", "utf8")));
+  await db.exec("rollback");
+  assert.deepEqual((await db.query("select * from public.living_town_displays where town_id=$1", [town.world.id])).rows, before);
+});
 
 test("basic login can onboard deliberately; existing towns bypass onboarding and duplicate creates retain the original Mayor", async () => {
   const f = fixture(), owner = profile(); f.twitch.identity = owner; f.twitch.validation.userId = owner.twitchUserId;

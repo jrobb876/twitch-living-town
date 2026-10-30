@@ -53,6 +53,14 @@ export class ChatManager {
     const entry = this.entries.get(userId);
     return { live: entry?.housing ? entry.connection.status : "disconnected", liveReady: !!entry?.housing && entry.connection.subscriptionReady };
   }
+  /** Read-only activity projection for an already authorized overlay. Never starts a connection. */
+  overlayActivity(userId: string) {
+    const entry = this.entries.get(userId);
+    if (entry) entry.connection.tick();
+    const feed = entry?.feed.snapshot(this.now());
+    return { ready: !!entry?.chat && entry.connection.subscriptionReady, status: entry?.chat ? entry.connection.status : "disconnected",
+      receivedMessages: feed?.receivedMessages ?? 0, sampleAgesMs: entry?.chat ? feed?.sampleAgesMs ?? [] : [] };
+  }
   async snapshot(id: string | undefined): Promise<ChatSnapshot> {
     const grant = await this.auth.chatSession(id), { twitchUserId, login, displayName } = grant.profile;
     const entry = this.entries.get(twitchUserId);

@@ -1,5 +1,13 @@
 # Twitch Living Town — Project specification
 
+## Public deployment preparation (Prompt 011A)
+
+The supported public architecture is one always-running Node web service plus Supabase. Private migration 006 RPCs persist HMAC-keyed sessions and AES-GCM encrypted Twitch credentials/revocation work. Eight-hour expiry, same-origin CSRF, ownership checks and startup/periodic token validation remain mandatory. A new process fences previous auth writers; this is restart durability for one instance, not distributed auth. Localhost can retain memory-only auth. This section supersedes earlier descriptions of universally ephemeral sessions.
+
+Public deployment sets `PUBLIC_DEPLOYMENT=true`, `AUTH_STORAGE=supabase`, `TOWN_DEMO_MODE=false`, and an exact registered HTTPS callback. API rate budgets, security headers and a cached `/api/health` readiness endpoint protect the deployment boundary. Builds do not initialize auth or contact the database. Secrets stay server-side; temporary validation/storage outages deny access without deliberately discarding valid encrypted credentials.
+
+EventSub reconnects during ordinary network interruptions. After a process restart, the owner manually reconnects chat/subscription events and syncs subscribers; unexpired login sessions and saved OBS grants survive. Transient activity, sockets, pending delivery queues and unfinished OAuth state remain local. No automatic channel restoration, new event types, worker, renderer features or gameplay was added. See [DEPLOYMENT.md](DEPLOYMENT.md) for the prioritized assessment, deployment/recovery procedure and remaining manual validation.
+
 ## Concept and current milestone
 
 A persistent, procedurally generated cozy town representing a Twitch streamer's community. Followers become residents; subscribers receive customizable houses. Chat animates the community, while subscriptions, gifts, raids and eventually Bits trigger town activities. Each streamer will choose and name a cat-like **Mayor**, headquartered at Town Hall.
@@ -11,6 +19,16 @@ The simulation milestone added renderer-independent ownership, activity, events 
 Chat delivery diagnostics distinguish socket connection, confirmed subscription readiness and accepted internal events. Message IDs are opaque strings used unchanged for deduplication; broadcaster messages follow the same rules as other chat. A bounded, temporary queue handles notifications received before the subscription HTTP response. Development-only structured logs expose safe rejection reasons without chat content or credentials. The source selector alone does not indicate subscription readiness. See README for manual verification.
 
 ## Architecture
+
+Prompt 010 adds `/overlay/[townId]`, a navigation-free responsive OBS scene, and dashboard **OBS & Stream Display** controls. Living Town follows the Mayor at neighborhood scale with smooth, bounded camera movement. Mayor Spotlight frames the actual saved town behind the same configured Mayor, with left/right position, scale and transparent Mayor-only background. Appearance/personality changes and new districts reach both modes through saved-world polling. Existing website camera controls remain unchanged.
+
+`src/lib/overlay` owns strict display preferences, the read-only access service, visual projection, transient playback and reaction queue. Migration 005 creates `living_town_displays`: display configuration plus an optional hashed, revocable capability. Server-only management/read RPCs are the only service-role grants; browser roles and direct table access remain denied. Settings writes do not touch canonical snapshots, revisions, ownership, customizations or Mayor identity. No new environment variable is needed.
+
+The owner obtains a cryptographically random key through session/CSRF-protected `/api/town/display`. `/api/overlay/[townId]` accepts only the town-bound capability in Authorization, checks it on every request, and exposes visual geometry/Mayor/public exteriors plus aggregated live activity and sanitized reactions. Private residents, subscriber evidence, gifting records, session/CSRF values and OAuth/database credentials are omitted. The URL fragment prevents the capability appearing in normal HTTP request URLs. It is read access and must remain private; rotating or revoking invalidates it. Settings and grant hashes survive backend restarts.
+
+OBS uses one transient simulation runtime and the existing `createTownRenderer`, with optional follow/Spotlight settings. Polling is non-overlapping, three seconds after the prior response, with abort/timeout and explicit unavailable/revoked states. Unchanged revisions omit geometry. World updates preserve movement state; expanded Spotlight backgrounds refit while follow mode continues smoothly. No demo fallback is substituted. Four anonymous ambient actors are visual scenery, not invented Twitch membership. Different browser views advance local movement independently.
+
+The existing backend ChatManager supplies aggregate sample ages and readiness without needing OBS session cookies or restarting sockets. Verified housing presentations supply bounded, generic celebration feedback only after commit; OBS never processes durable events. Typed reactions include subscriber, resubscription, gift, neighborhood and future raid/Bits/donation hooks. Higher-priority interruption, expiry, dedupe and return-to-idle are implemented; new live integrations are not. Backend restart/session expiry still disconnects Twitch until the owner reconnects. Saved visuals remain available independently of that session.
 
 Prompt 009 adds `/onboarding` and `/dashboard`. Server pages resolve the validated Twitch session and its owned town without trusting URL/browser owner claims. No town redirects to the four-step wizard; an existing town redirects to its dashboard. Creation remains explicit and idempotent through the original create RPC. Chat/subscription scopes are not required for onboarding. The Overview retains its saved-world loader and links to the owner workspace instead of maintaining a second creation/settings form.
 
@@ -142,9 +160,9 @@ RLS is enabled on every new table, browser privileges are revoked, and only the 
 
 World schema/generator versions are pinned at 1. Existing coordinates, seed, house/plot identity and assigned ownership cannot change through normal saves. Unknown versions fail closed and require a reviewed migration. Mayor appearance/personality and house size/prestige/customization are stored as bounded settings. Subscriber Housing reuses existing renderer/effects and adds no economy or customization editor. See `supabase/README.md` for setup and production limits.
 
-Implemented surfaces include the owner dashboard/onboarding and subscriber exterior portal. Planned surfaces include a public town directory, advanced streamer tools, OBS overlay, further Twitch integrations, and later Fastify/Socket.IO services.
+Implemented surfaces include the owner dashboard/onboarding, subscriber exterior portal and two-mode OBS display. Planned surfaces include a public town directory, advanced streamer tools, further Twitch integrations, and later Fastify/Socket.IO services.
 
-Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions, Supabase persistence, incremental neighborhoods, subscriber exterior customization and owner onboarding/settings are implemented. Real follower/raid/Bits/Channel Points events, Socket.IO, OBS and an isometric renderer remain deferred. Richer Mayor naps, inspections and expressive animations remain future work beyond the implemented personality-driven stroll choices and idle pauses.
+Twitch OAuth, Helix identity/subscriber verification, EventSub chat/subscriptions, Supabase persistence, incremental neighborhoods, subscriber exterior customization, owner onboarding/settings and OBS display are implemented. Real follower/raid/Bits/Channel Points events, donation providers, Socket.IO and an isometric renderer remain deferred. Richer Mayor naps, inspections and expressive animations remain future work beyond the implemented personality-driven stroll choices and idle pauses.
 
 ## Verified Subscriber Housing (Prompt 006)
 

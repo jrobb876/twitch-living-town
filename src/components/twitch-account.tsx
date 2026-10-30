@@ -5,11 +5,23 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { AccountProfile } from "@/lib/auth/types";
 import { authMessages } from "@/lib/auth/messages";
+import { logoutAccount } from "@/lib/auth/logout-client";
 
 type AccountState = { user: AccountProfile | null; csrfToken: string | null; error?: string };
 
 export default function TwitchAccount({ detailed = false }: { detailed?: boolean }) {
   const [account, setAccount] = useState<AccountState | null>(null);
+  const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState(false);
+  async function signOut() {
+    if (signingOut || !account?.csrfToken) return;
+    setSigningOut(true); setLogoutError(false);
+    try {
+      await logoutAccount(account.csrfToken);
+      // eslint-disable-next-line @next/next/no-location-assign-relative-destination -- Full navigation clears cached authenticated UI after logout.
+      window.location.assign("/account?auth=signed_out");
+    } catch { setLogoutError(true); setSigningOut(false); }
+  }
   useEffect(() => {
     const controller = new AbortController();
     let inFlight = false;
@@ -43,10 +55,10 @@ export default function TwitchAccount({ detailed = false }: { detailed?: boolean
           : <Link href="/account">{user.displayName}</Link>}
       </div>
       {detailed && <p>Connected to Living Town. Town administration requires ownership of that specific town. This login does not verify an active subscription or assign a house.</p>}
-      <form method="post" action="/api/auth/logout">
-        <input type="hidden" name="csrfToken" value={account.csrfToken ?? ""} />
-        <button className="account-button" type="submit">Sign out</button>
-      </form>
+      <button className="account-button" type="button" onClick={signOut} disabled={signingOut || !account.csrfToken}>
+        {signingOut ? "Signing out…" : "Sign out"}
+      </button>
+      {logoutError && <p className="account-error" role="alert">Sign-out could not be confirmed. Please retry.</p>}
     </> : <>
       <a className="account-button" href="/api/auth/twitch/login">Connect with Twitch</a>
       {detailed && <p>Streamers and viewers connect the same way. Living Town requests only your basic Twitch identity.</p>}

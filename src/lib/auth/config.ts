@@ -17,8 +17,12 @@ export function parseAuthConfig(env: Record<string, string | undefined>): AuthCo
   let url: URL;
   try { url = new URL(redirectUri); } catch { throw new AuthError("configuration"); }
   const production = env.NODE_ENV === "production";
+  if (env.PUBLIC_DEPLOYMENT === "true" && (!production || url.protocol !== "https:" || url.hostname === "localhost")) throw new AuthError("configuration");
+  // Local production builds use the registered localhost callback too. Keep
+  // public hosts HTTPS-only and retain production Secure/__Host- cookies;
+  // Chrome permits Secure cookies on the trustworthy localhost origin.
   if (url.username || url.password || url.search || url.hash || url.pathname !== "/api/auth/twitch/callback"
-    || (url.protocol !== "https:" && !(url.protocol === "http:" && url.hostname === "localhost" && !production))) {
+    || (url.protocol !== "https:" && !(url.protocol === "http:" && url.hostname === "localhost"))) {
     throw new AuthError("configuration");
   }
   return { clientId, clientSecret, redirectUri, origin: url.origin, sessionSecret, production };
@@ -31,4 +35,12 @@ export function cookieNames(production: boolean) {
 
 export function cookieOptions(production: boolean, maxAge: number) {
   return { httpOnly: true, secure: production, sameSite: "lax" as const, path: "/", maxAge };
+}
+
+/** Public deployments may not silently fall back to volatile auth storage. */
+export function authStorageMode(config: AuthConfig, mode?: string): "memory" | "supabase" {
+  const publicProduction = config.production && new URL(config.origin).hostname !== "localhost";
+  const selected = mode ?? (publicProduction ? "supabase" : "memory");
+  if (!["memory", "supabase"].includes(selected) || publicProduction && selected !== "supabase") throw new AuthError("configuration");
+  return selected as "memory" | "supabase";
 }

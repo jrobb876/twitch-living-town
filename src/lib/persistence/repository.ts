@@ -3,7 +3,7 @@ import type { TownWorld } from "../simulation/types";
 import { PersistenceError, isPersistenceError, type PersistentTownRepository, type StoredTown, type EventReceipt, type CommitResult, type Json } from "./types";
 import { validateWorld, parseInput, townIdSchema } from "./validation";
 
-export type RpcName = "living_town_load" | "living_town_create" | "living_town_commit" | "living_town_owned_towns";
+export type RpcName = "living_town_load" | "living_town_create" | "living_town_commit" | "living_town_owned_towns" | "living_town_display_manage" | "living_town_display_read" | "living_town_auth_claim" | "living_town_auth_check" | "living_town_auth_save";
 export type RpcClient = (name: RpcName, args: Record<string, Json>) => PromiseLike<{ data: unknown; error: { code?: string } | null }>;
 function stored(value: unknown): StoredTown {
   const row = value as Partial<StoredTown> | null;

@@ -1,5 +1,52 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 011C — Persistent-auth logout 403
+
+- [x] Trace native form navigation plus global no-referrer policy to null Origin and rejection before cookie lookup, CSRF evaluation or durable sign-out. The rejected request does not revoke its session.
+- [x] Replace native submission with fixed-target CORS-mode fetch, same-origin credentials, session CSRF, redirect rejection and explicit JSON acknowledgement. Keep strict server Origin checks and secure cookies unchanged; report failure in the UI.
+- [x] Test missing/null/malformed/foreign Origin rejection, restored production-cookie logout, cookie expiry, persistent deletion across another restart and failed client acknowledgements. All 181 tests, lint and TypeScript pass.
+- [x] Final production build and Git diff checks pass.
+- [ ] Manual Chrome production-mode retest using README. No live database changes, browser automation, commit, push or deployment.
+
+## Prompt 011B — Persistent authentication security review
+
+- [x] Verify encryption/key handling, server-only access, private RPC grants, restart recovery and failure boundaries. Migration 006 requires no SQL correction.
+- [x] Require positive save acknowledgements and permanently latch detected ownership loss against delayed responses; recheck ownership before refresh/revocation and after identity validation.
+- [x] Add regressions for stale responses, failed/ambiguous writes, fenced maintenance and non-destructive application to populated 001–005 schema. All 179 tests pass.
+- [x] Document plaintext metadata versus encrypted credentials and the bounded EventSub cache/in-flight overlap limitations in DEPLOYMENT.md.
+- [x] Final lint, TypeScript, production build and Git diff checks pass for this review.
+- [ ] Manual application/deployment rehearsal only; no live database, browser automation, commit, push or deployment performed.
+
+## Prompt 011A — Production readiness
+
+- [x] Review OAuth, EventSub, subscriber ownership, private RPC/RLS, OBS grants and process-local dependencies; classify release findings in DEPLOYMENT.md.
+- [x] Add durable encrypted auth with startup validation, serialized writes, process fencing, absolute expiry and persistent revocation work. Local memory mode remains available.
+- [x] Preserve credentials and browser cookies on transient validation failure; deny access until verified. Persist refreshed-token cleanup when expiry races validation.
+- [x] Add private, additive migration 006, manual application only; test roles, fencing, restart behavior and compatibility after 001–005 in disposable PostgreSQL.
+- [x] Add API rate budgets, safe readiness endpoint, public HTTPS/demo checks, response headers and a single-instance Render configuration.
+- [x] Document Render/Railway tradeoffs, production variables, manual deployment, Twitch callback registration, HTTPS/OBS rehearsal, EventSub recovery and rollback.
+- [x] Final lint, TypeScript, all 174 automated tests, production build and Git diff checks pass. Production dependency audit: no known vulnerabilities at review time.
+- [ ] Manually review/apply pending migrations, configure hosting/Twitch redirects, verify HTTPS/OBS, inspect provider access-log redaction and rehearse restart recovery before judging.
+
+No external deployment, live database changes, browser automation, commit or push. Earlier task notes are historical: durable auth supersedes the process-local session limitation in public mode. EventSub connections, pending deliveries and activity remain process-local. Automatic connection restoration, distributed workers, durable intake, retention/scale work, new Mayor animations, expanded-town OBS previews, isometric art, cosmetics, monetization and new event types remain deferred.
+
+## Prompt 010 — OBS integration and two presentation modes
+
+- [x] Reuse saved worlds, the existing PixiJS renderer and configured cat Mayor; preserve Overview controls and demo isolation.
+- [x] Smooth neighborhood camera follows the Mayor within expanded bounds, with a timed event-focus hook.
+- [x] Mayor Spotlight uses the same appearance/personality, left/right composition, scale and transparent Mayor-only option.
+- [x] Dashboard OBS settings, private preview/copy URL, regenerate and revoke controls.
+- [x] Migration 005 stores display preferences and hashed read-only grants separately; no canonical world writes or new secrets/scopes.
+- [x] Owner/CSRF management and tenant-bound read access; every poll checks revocation, even with unchanged world revisions.
+- [x] Clean responsive OBS page polls saved geometry, existing chat activity and verified subscriber presentations. No fabricated live activity.
+- [x] Bounded reaction priority, higher-priority interruption, dedupe, expiry and return-to-idle. Future raid/Bits/donation types have no new live adapters.
+- [x] Tests cover RPC permissions/persistence, rotation/revocation, tenant isolation, expansion, camera/composition, live-chat projection and outage recovery.
+- [x] Final validation: lint, TypeScript, all 155 tests, production build and Git whitespace checks pass. The final test run used the approved unsandboxed test command after the sandbox's Node user-info lookup failed before test startup.
+- [ ] Manually review/apply migration 005 after 001–004; no live database was accessed.
+- [ ] Manually verify Chrome and OBS at 1920×1080 and 1280×720 using README. Browser automation is deliberately excluded.
+
+Limitations: one continuously running backend process for live Twitch activity; restarting requires reconnecting Twitch, but saved display access survives. Mayor runtime movement is local presentation state, so separate views need not show identical walking positions. Reaction presentations are brief and not replayed from history. Display preferences are independently saved with last successful write winning across dashboard tabs.
+
 ## Prompt 009 — Streamer onboarding, Mayor selection and dashboard
 
 - [x] Inspect installed Next.js guides, auth/ownership, persistent creation, Mayor model, renderer and existing controls.
@@ -15,7 +62,7 @@
 - [x] Update manual onboarding/dashboard instructions, architecture and limitations.
 - [ ] User manually checks Chrome wizard, responsive layouts, selected Mayor visuals, existing saved town, portal and connections.
 
-Remaining limitations: wizard drafts are local; no naps/inspection animations or OBS; process-local Twitch sessions; dashboard preview is not the full live celebration view. No live database modification, automated browser testing, commit or push.
+Remaining limitations from Prompt 009: wizard drafts are local; no naps/inspection animations; process-local Twitch sessions; dashboard preview is not the full live celebration view. Prompt 010 adds the separate OBS view. No live database modification, automated browser testing, commit or push.
 
 ## Prompt 008 — Automatic neighborhood expansion
 
@@ -134,10 +181,10 @@ Prompt 006 implements subscription scopes/ingestion. Customization UI, auth pers
 
 1. Exercise the simulator in-browser and tune effect visibility and Mayor priorities.
 2. Add canvas lifecycle/camera retention integration tests and broader mobile/touch checks.
-3. Implement incremental districts and housing waitlist fulfillment.
+3. Profile incremental districts and large OBS scenes manually; expansion and waitlist retries are implemented.
 4. Add shared auth storage, validation workers, durable event retention and production rollout controls; transactional town storage and migrations are implemented in Prompt 005.
 5. Add durable event intake/retention and production quotas. Keep Twitch gift aggregate counts separate from verified recipient ownership; no exact batch correlation is available.
-6. Add public town browsing and subscriber customization controls after independently verified subscription entitlement.
+6. Add public town browsing; verified subscriber exterior customization is implemented.
 
 ## Completed: secure Twitch authentication (Prompt 003)
 
@@ -174,7 +221,7 @@ Prompt 006 implements subscription scopes/ingestion. Customization UI, auth pers
 
 ## Deferred
 
-Real follower/raid/Bits/Channel Points events, Fastify, Socket.IO, OBS, cosmetic inventory/uploads, new districts, detailed isometric renderer, production art/audio and complex Mayor AI. Prompt 007 adds exterior customization. Demo activity and auth sessions remain in memory. No automatic commits or pushes.
+Real follower/raid/Bits/Channel Points events, donation providers, Fastify, Socket.IO, cosmetic inventory/uploads, detailed isometric renderer, production art/audio and complex Mayor AI. Prompts 007/008/010 implement exterior customization, incremental districts and OBS presentation. Demo activity and auth sessions remain in memory. No automatic commits or pushes.
 
 ## Completed: EventSub chat (Prompt 004)
 

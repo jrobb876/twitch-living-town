@@ -13,12 +13,27 @@ const error = (code: string) => (value: unknown) => value instanceof AuthError &
 test("configuration rejects missing/weak secrets and unsafe production callbacks", () => {
   assert.throws(() => parseAuthConfig({}), error("configuration"));
   assert.throws(() => parseAuthConfig({ ...testEnv, SESSION_SECRET: "placeholder" }), error("configuration"));
-  assert.throws(() => parseAuthConfig({ ...testEnv, NODE_ENV: "production" }), error("configuration"));
   for (const uri of ["http://other.example/api/auth/twitch/callback", `${testEnv.TWITCH_REDIRECT_URI}?next=evil`, "https://user:pass@example.com/api/auth/twitch/callback"]) {
     assert.throws(() => parseAuthConfig({ ...testEnv, TWITCH_REDIRECT_URI: uri }), error("configuration"));
   }
   assert.equal(parseAuthConfig(testEnv).origin, "http://localhost:3000");
   assert.equal(fixture(true).config.production, true);
+});
+
+test("production accepts the registered HTTP localhost callback but never public HTTP or localhost lookalikes", () => {
+  const env = { ...testEnv, NODE_ENV: "production" };
+  const config = parseAuthConfig(env);
+  assert.equal(config.redirectUri, "http://localhost:3000/api/auth/twitch/callback");
+  assert.equal(config.origin, "http://localhost:3000");
+  assert.equal(config.production, true, "local callback must not downgrade production protections");
+  for (const uri of [
+    "http://town.example/api/auth/twitch/callback", "http://localhost.evil.example/api/auth/twitch/callback",
+    "http://sub.localhost/api/auth/twitch/callback", "http://127.0.0.1/api/auth/twitch/callback",
+    "http://192.168.1.2/api/auth/twitch/callback", "http://localhost@evil.example/api/auth/twitch/callback",
+    "http://user:pass@localhost:3000/api/auth/twitch/callback", "ftp://localhost/api/auth/twitch/callback",
+    "http://localhost:3000/wrong", `${testEnv.TWITCH_REDIRECT_URI}?next=evil`, `${testEnv.TWITCH_REDIRECT_URI}#fragment`,
+  ]) assert.throws(() => parseAuthConfig({ ...env, TWITCH_REDIRECT_URI: uri }), error("configuration"));
+  assert.equal(parseAuthConfig({ ...env, TWITCH_REDIRECT_URI: "https://town.example/api/auth/twitch/callback" }).production, true);
 });
 
 test("hex and base64 session secrets normalize to the same 32-byte encryption key", () => {
@@ -207,8 +222,12 @@ test("validation outages, refresh failure and refreshed identity mismatch fail c
     };
     if (failure === "refresh") f.twitch.refresh = async () => { throw new AuthError("invalid_token"); };
     await assert.rejects(f.service.getProfile(a.id), error(failure === "outage" ? "unavailable" : "invalid_token"));
-    assert.equal(await f.service.getProfile(a.id), null);
-    if (failure === "outage") assert.equal(f.twitch.refreshes.length, 0);
+    if (failure === "outage") {
+      await assert.rejects(f.service.getProfile(a.id), error("unavailable"));
+      assert.equal(f.twitch.refreshes.length, 0);
+      f.twitch.validate = async () => ({ ...f.twitch.validation, expiresIn: 7200 });
+      assert.ok(await f.service.getProfile(a.id), "temporary failure retains encrypted credentials for a verified retry");
+    } else assert.equal(await f.service.getProfile(a.id), null);
   }
 });
 

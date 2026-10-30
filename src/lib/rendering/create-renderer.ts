@@ -2,7 +2,9 @@ import { Application, Container, Graphics, Text } from "pixi.js";
 import type { TownSession } from "../simulation/types";
 import { overviewOf } from "./overview";
 import { drawMayor, drawTown } from "./draw-town";
-import { clampCameraPosition, fitCamera, worldBounds } from "./camera";
+import { clampCameraPosition, fitCamera, coverCamera, worldBounds, followCamera, smoothCamera } from "./camera";
+import { rendererViewport } from "./viewport";
+import { spotlightComposition, type DisplaySettings } from "../overlay/model";
 
 export type TownRenderer = {
   update: (session: TownSession) => void;
@@ -10,15 +12,17 @@ export type TownRenderer = {
   pan: (dx: number, dy: number) => void;
   reset: () => void;
   destroy: () => void;
+  setDisplay: (settings: DisplaySettings) => void;
+  focusEvent: (position: { x: number; y: number }, seconds: number) => void;
 };
 
 /** Browser-only owner of GPU resources, ticker, camera and native listeners. */
-export async function createTownRenderer(host: HTMLElement, initial: TownSession, signal: AbortSignal): Promise<TownRenderer | null> {
+export async function createTownRenderer(host: HTMLElement, initial: TownSession, signal: AbortSignal, display?: DisplaySettings): Promise<TownRenderer | null> {
   const app = new Application();
   await app.init({
-    width: Math.max(1, host.clientWidth), height: Math.max(1, host.clientHeight),
-    background: 0xe3ebd9, antialias: true, autoDensity: true,
-    resolution: Math.min(window.devicePixelRatio || 1, 2), preference: "webgl",
+    ...rendererViewport(host, window.devicePixelRatio),
+    background: 0xe3ebd9, backgroundAlpha: display ? 0 : 1, antialias: true, autoDensity: true,
+    preference: "webgl",
   });
   // React Strict Mode or regeneration can dispose the effect while init awaits.
   if (signal.aborted) { app.destroy(true, { children: true }); return null; }
@@ -41,7 +45,12 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     const geometryKey = (session: TownSession) => JSON.stringify([session.world.layout, session.world.districts,
       session.world.plots.filter((p) => p.districtId === "expansion").map((p) => p.buildingId)]);
     let geometry = geometryKey(initial);
+    const backdrop = display ? new Graphics() : null;
+    if (backdrop) app.stage.addChild(backdrop);
     const world = new Container(); app.stage.addChild(world);
+    let foreground = display ? drawMayor(initial.world.mayor.appearance?.preset) : null;
+    if (foreground) app.stage.addChild(foreground.mayor);
+    let focus: { x: number; y: number; until: number } | null = null;
     let scene = drawTown(overviewOf(initial.world)); world.addChild(scene.world);
     let actors = scene.actors;
     let { mayor, body, tail } = drawMayor(initial.world.mayor.appearance?.preset); actors.addChild(mayor);
@@ -61,6 +70,10 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
         ({ mayor, body, tail } = drawMayor(next.world.mayor.appearance?.preset));
         mayor.position.copyFrom(previous.position); mayor.addChild(badge); actors.addChild(mayor);
         previous.destroy({ children: true });
+        if (foreground) {
+          foreground.mayor.destroy({ children: true }); foreground = drawMayor(next.world.mayor.appearance?.preset);
+          app.stage.addChild(foreground.mayor);
+        }
       }
       badge.text = next.world.mayor.name;
       const changed = next.world.layout !== snapshot.world.layout || next.world.plots !== snapshot.world.plots;
@@ -101,18 +114,32 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     app.ticker.maxFPS = 60;
     app.ticker.add((ticker) => {
       const dt = Math.min(ticker.deltaMS / 1000, 0.05); elapsed += dt;
-      if (reducedMotion) return;
       const state = snapshot.runtime.mayor;
       const walking = state.targetNodeId !== null;
-      const blend = Math.min(1, dt * 15);
+      const blend = reducedMotion ? 1 : Math.min(1, dt * 15);
       const dx = state.position.x - mayor.x;
       mayor.x += dx * blend; mayor.y += (state.position.y - mayor.y) * blend;
       if (Math.abs(dx) > 0.2) body.scale.x = dx > 0 ? 1 : -1;
       mayor.zIndex = mayor.y;
       const celebrating = state.behavior === "celebrating" || state.behavior === "welcoming";
-      body.y = celebrating ? -Math.abs(Math.sin(elapsed * 8)) * 6 : Math.sin(elapsed * (walking ? 12 : 2.5)) * (walking ? 2 : 0.8);
-      body.rotation = walking ? Math.sin(elapsed * 12) * 0.035 : 0;
-      tail.rotation = Math.sin(elapsed * 2) * 0.1;
+      body.y = reducedMotion ? 0 : celebrating ? -Math.abs(Math.sin(elapsed * 8)) * 6 : Math.sin(elapsed * (walking ? 12 : 2.5)) * (walking ? 2 : 0.8);
+      body.rotation = !reducedMotion && walking ? Math.sin(elapsed * 12) * 0.035 : 0;
+      tail.rotation = reducedMotion ? 0 : Math.sin(elapsed * 2) * 0.1;
+      if (display && foreground) {
+        const composition = spotlightComposition(app.screen.width, app.screen.height, display);
+        foreground.mayor.visible = composition.visible;
+        foreground.mayor.position.set(composition.x, composition.y); foreground.mayor.scale.set(composition.scale);
+        // One Mayor model/runtime, two views. Personality modulates the existing idle motion.
+        const energy = snapshot.world.mayor.personality?.energy ?? 0.5;
+        foreground.body.y = reducedMotion ? 0 : celebrating ? -Math.abs(Math.sin(elapsed * 8)) * 3 : Math.sin(elapsed * (1.5 + energy)) * 0.8;
+        foreground.tail.rotation = reducedMotion ? 0 : Math.sin(elapsed * (1 + energy)) * 0.1;
+        if (display.mode === "living-town") {
+          if (focus && focus.until <= elapsed) focus = null;
+          const camera = followCamera(bounds, app.screen.width, app.screen.height, focus ?? mayor);
+          const position = reducedMotion ? camera : smoothCamera(world.position, camera, dt);
+          world.scale.set(camera.scale); world.position.set(position.x, position.y); cull();
+        }
+      }
       for (const { residentId, actor } of snapshot.runtime.residentActors) {
         const visual = residents.get(residentId)!;
         visual.x += (actor.position.x - visual.x) * blend;
@@ -125,9 +152,17 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       world.position.set(position.x, position.y); cull();
     };
     const reset = () => {
-      const camera = fitCamera(bounds, app.screen.width, app.screen.height); fit = camera.scale;
+      const camera = display?.mode === "living-town" ? followCamera(bounds, app.screen.width, app.screen.height, snapshot.runtime.mayor.position)
+        : display ? coverCamera(bounds, app.screen.width, app.screen.height) : fitCamera(bounds, app.screen.width, app.screen.height); fit = camera.scale;
       world.scale.set(fit);
       world.position.set(camera.x, camera.y); cull();
+      if (display && foreground && backdrop) {
+        const composition = spotlightComposition(app.screen.width, app.screen.height, display);
+        world.visible = composition.showTown; backdrop.visible = composition.showTown;
+        backdrop.clear().rect(0, 0, app.screen.width, app.screen.height).fill(0xe3ebd9);
+        foreground.mayor.visible = composition.visible;
+        foreground.mayor.position.set(composition.x, composition.y); foreground.mayor.scale.set(composition.scale);
+      }
     };
     const zoomAt = (factor: number, x: number, y: number) => {
       const old = world.scale.x;
@@ -139,8 +174,14 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     const pan = (dx: number, dy: number) => { world.x += dx; world.y += dy; clampCamera(); };
     reset();
     update(initial);
-    observer = new ResizeObserver(() => {
+    const resize = () => {
       if (destroyed) return;
+      if (display) {
+        const viewport = rendererViewport(host, window.devicePixelRatio);
+        if (viewport.width === app.screen.width && viewport.height === app.screen.height && viewport.resolution === app.renderer.resolution) return;
+        app.renderer.resize(viewport.width, viewport.height, viewport.resolution);
+        reset(); return;
+      }
       const oldFit = fit;
       const oldWidth = app.screen.width, oldHeight = app.screen.height;
       const centerX = (oldWidth / 2 - world.x) / world.scale.x;
@@ -150,12 +191,18 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       world.scale.set(world.scale.x * fit / oldFit);
       world.position.set(app.screen.width / 2 - centerX * world.scale.x, app.screen.height / 2 - centerY * world.scale.x);
       clampCamera();
-    });
+    };
+    observer = new ResizeObserver(resize);
     observer.observe(host);
+    if (display) {
+      // Also catch a display-density change when CSS dimensions stay unchanged.
+      window.addEventListener("resize", resize);
+      cleanup.push(() => window.removeEventListener("resize", resize));
+    }
     const canvas = app.canvas;
     let drag: { id: number; x: number; y: number } | null = null;
     const pointerDown = (event: PointerEvent) => {
-      if (event.button !== 0 || drag) return;
+      if (display || event.button !== 0 || drag) return;
       drag = { id: event.pointerId, x: event.clientX, y: event.clientY };
       canvas.setPointerCapture(event.pointerId); canvas.style.cursor = "grabbing";
     };
@@ -170,12 +217,13 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       drag = null; canvas.style.cursor = "grab";
     };
     const wheel = (event: WheelEvent) => {
+      if (display) return;
       event.preventDefault();
       const bounds = canvas.getBoundingClientRect();
       zoomAt(Math.exp(-event.deltaY * 0.0015), event.clientX - bounds.left, event.clientY - bounds.top);
     };
     const keyboard = (event: KeyboardEvent) => {
-      if (event.target !== host) return;
+      if (display || event.target !== host) return;
       const actions: Record<string, () => void> = {
         ArrowLeft: () => pan(45, 0), ArrowRight: () => pan(-45, 0),
         ArrowUp: () => pan(0, 45), ArrowDown: () => pan(0, -45),
@@ -199,6 +247,12 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       canvas.removeEventListener("wheel", wheel);
       host.removeEventListener("keydown", keyboard);
     });
-    return { update, zoom, pan, reset, destroy };
+    return { update: (next) => {
+      const previousGeometry = geometry; update(next);
+      if (display?.mode === "spotlight" && previousGeometry !== geometry) reset();
+    }, zoom, pan, reset, destroy,
+      setDisplay: (settings) => { if (display && JSON.stringify(display) !== JSON.stringify(settings)) { display = settings; reset(); } },
+      focusEvent: (position, seconds) => { if (display && Number.isFinite(position.x) && Number.isFinite(position.y)) focus = { ...position, until: elapsed + Math.max(0, Math.min(8, seconds)) }; },
+    };
   } catch (error) { destroy(); throw error; }
 }

@@ -12,6 +12,10 @@ export class MemoryAuthStore {
   readonly states = new Map<string, PendingLogin>();
   readonly sessions = new Map<string, StoredSession>();
   readonly revocations = new Map<string, Revocation>();
+  /** Durable implementations load/check their exclusive writer before use. */
+  async ready() {}
+  async flush() {}
+  available() { return true; }
   consumeState(key: string): PendingLogin | undefined {
     const state = this.states.get(key);
     this.states.delete(key); // Synchronous read/delete: single use, including failed callbacks.

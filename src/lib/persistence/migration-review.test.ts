@@ -157,5 +157,38 @@ test("migration 002 preserves populated 001 data and the least-privilege RPC bou
       assert.equal(housesIn(expanded.world).find((h) => h.id === home.id)?.property?.customization.sign, "Keep this");
       assert.deepEqual(await service.mine(viewer), otherBefore);
     });
+    await t.test("migration 006 preserves populated 001–005 rows and RPCs, rolls back failure, and denies untrusted auth access", async () => {
+      await db.exec(await readFile("supabase/migrations/202610290005_obs_display.sql", "utf8"));
+      assert.equal((await rpc("living_town_display_manage", { p_owner: owner.twitchUserId, p_id: saved.world.id, p_action: "rotate", p_hash: "a".repeat(64) })).error, null);
+      const existing = async () => {
+        const rows: Record<string, unknown> = {};
+        for (const name of [...tables, "living_town_subscriber_syncs", "living_town_displays"]) rows[name] = (await db.query(`select to_jsonb(r) data from public.${name} r order by data`)).rows;
+        rows.functions = (await db.query("select oid,proowner,proacl,prosrc,proconfig from pg_proc where pronamespace='public'::regnamespace and proname like 'living_town_%' and proname not like 'living_town_auth_%' order by oid")).rows;
+        return rows;
+      };
+      const before = await existing(), sql = await readFile("supabase/migrations/202610290006_durable_auth.sql", "utf8");
+      await assert.rejects(db.exec(sql.replace(/commit;\s*$/i, "select 1 / 0; commit;")));
+      await db.exec("rollback");
+      assert.equal((await db.query<{ name: string | null }>("select to_regclass('public.living_town_auth_runtime')::text name")).rows[0].name, null);
+      assert.deepEqual(await existing(), before);
+      await db.exec(sql); assert.deepEqual(await existing(), before);
+      const holder = randomUUID();
+      assert.deepEqual((await rpc("living_town_auth_claim", { p_holder: holder })).data, { sessions: {}, revocations: {} });
+      assert.equal((await rpc("living_town_auth_check", { p_holder: holder })).data, true);
+      assert.equal((await rpc("living_town_auth_save", { p_holder: holder, p_sessions: {}, p_revocations: {} })).data, true);
+      for (const role of ["anon", "authenticated", "service_role"]) {
+        await db.exec(`set role ${role}`);
+        try {
+          const denied = (e: unknown) => (e as { code: string }).code === "42501";
+          await assert.rejects(db.query("select * from public.living_town_auth_runtime"), denied);
+          if (role !== "service_role") {
+            await assert.rejects(db.query("select public.living_town_auth_claim($1)", [holder]), denied);
+            await assert.rejects(db.query("select public.living_town_auth_check($1)", [holder]), denied);
+            await assert.rejects(db.query("select public.living_town_auth_save($1,'{}','{}')", [holder]), denied);
+          }
+        } finally { await db.exec("reset role"); }
+      }
+      assert.deepEqual(await existing(), before);
+    });
   } finally { await db.close(); }
 });

@@ -13,6 +13,7 @@ export class AuthService {
   }
   private sessionKey(id: string) { return this.vault.digest("session", id); }
   csrfToken(id: string) { return this.vault.digest("logout-csrf", id); }
+  async ready() { await this.store.ready(); }
 
   beginLogin(previousBinding?: string, chatUserId?: string, scopes = chatUserId ? [CHAT_SCOPE] : []) {
     const requiredScopes = [...new Set(scopes)];
@@ -47,8 +48,10 @@ export class AuthService {
   }
   async finishLogin(input: { state?: string; code?: string; error?: string }, binding?: string, oldSessionId?: string) {
     let tokens: OAuthTokens | undefined;
+    let createdKey: string | undefined;
     let operation: AuthOperation = "callback_state";
     try {
+      await this.store.ready();
       const attempt = this.consumeState(input.state, binding);
       operation = "callback_code";
       if (input.error) throw new AuthError("denied");
@@ -71,6 +74,7 @@ export class AuthService {
       if (this.store.sessions.size >= 200) throw new AuthError("capacity");
       operation = "session_creation";
       const id = randomToken(), key = this.sessionKey(id), now = this.now();
+      createdKey = key;
       this.store.sessions.set(key, { profile, scopes: [...validation.scopes], encryptedTokens: this.vault.seal(tokens, key),
         tokenFingerprint: this.vault.digest("access-token", tokens.accessToken),
         expiresAt: now + SESSION_TTL_MS, tokenExpiresAt: now + validation.expiresIn * 1000, validatedAt: now });
@@ -81,14 +85,18 @@ export class AuthService {
         this.store.sessions.delete(oldKey);
         if (old && old.tokenFingerprint !== this.vault.digest("access-token", tokens.accessToken)) this.queueRevocation(oldKey, old);
       }
+      await this.store.flush();
+      if (!this.store.sessions.has(key)) throw new AuthError("unauthorized");
       return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS,
         chatRequested: required.includes(CHAT_SCOPE), housingRequested: required.includes(SUBSCRIPTION_SCOPE) };
     } catch (error) {
+      if (createdKey) this.store.sessions.delete(createdKey);
       authDiagnostic(operation, "failure", error);
       if (tokens) {
         try {
           const key = randomToken();
           this.store.revocations.set(key, { key, encryptedTokens: this.vault.seal(tokens, key), expiresAt: this.now() + 60 * 60 * 1000 });
+          await this.store.flush();
         } catch (cleanupError) { authDiagnostic("token_cleanup", "failure", cleanupError); }
       }
       throw isAuthError(error) ? error : new AuthError("unavailable");
@@ -103,14 +111,17 @@ export class AuthService {
     }
   }
   async getProfile(id?: string, forceValidation = false): Promise<AccountProfile | null> {
+    await this.store.ready();
     if (!isOpaqueToken(id)) return null;
-    return this.profileByKey(this.sessionKey(id), forceValidation);
+    const profile = await this.profileByKey(this.sessionKey(id), forceValidation);
+    await this.store.ready(); // Recheck ownership after potentially slow Twitch validation.
+    return profile;
   }
   private async profileByKey(key: string, forceValidation: boolean): Promise<AccountProfile | null> {
     const session = this.store.sessions.get(key);
     if (!session) return null;
     if (session.expiresAt <= this.now()) {
-      this.store.sessions.delete(key); this.queueRevocation(key, session); return null;
+      this.store.sessions.delete(key); this.queueRevocation(key, session); await this.store.flush(); return null;
     }
     if (!forceValidation && this.now() - session.validatedAt < VALIDATION_INTERVAL_MS && session.tokenExpiresAt > this.now()) return { ...session.profile };
     const existing = this.checks.get(key);
@@ -129,13 +140,27 @@ export class AuthService {
         // An unexpected revocation must end the session, not silently reconnect it.
         // Refresh only an expired token, reactively after Twitch returns invalid.
         if (!isAuthError(error) || error.code !== "invalid_token" || session.tokenExpiresAt > this.now()) throw error;
+        await this.store.ready();
         refreshed = await this.twitch.refresh(tokens.refreshToken);
         tokens = refreshed;
+        if (this.store.sessions.get(key) !== session || session.expiresAt <= this.now()) {
+          if (this.store.sessions.get(key) === session) this.store.sessions.delete(key);
+          this.queueRevocation(key, { ...session, encryptedTokens: this.vault.seal(refreshed, key) });
+          await this.store.flush(); return null;
+        }
+        // Preserve rotated credentials even if the following validation hits an outage.
+        session.encryptedTokens = this.vault.seal(tokens, key);
+        session.tokenFingerprint = this.vault.digest("access-token", tokens.accessToken);
+        session.validatedAt = -Number.MAX_SAFE_INTEGER;
+        await this.store.flush();
         validation = await this.twitch.validate(tokens.accessToken);
       }
       this.checkIdentity(validation, session.profile.twitchUserId);
       if (this.store.sessions.get(key) !== session || session.expiresAt <= this.now()) {
-        if (refreshed) this.queueRevocation(key, { ...session, encryptedTokens: this.vault.seal(refreshed, key) });
+        if (this.store.sessions.get(key) === session) {
+          this.store.sessions.delete(key); this.queueRevocation(key, session);
+        } else if (refreshed) this.queueRevocation(key, { ...session, encryptedTokens: this.vault.seal(refreshed, key) });
+        await this.store.flush();
         return null; // Sign-out or expiry during a network request cannot resurrect a session.
       }
       session.encryptedTokens = this.vault.seal(tokens, key);
@@ -143,19 +168,29 @@ export class AuthService {
       session.tokenExpiresAt = this.now() + validation.expiresIn * 1000;
       session.validatedAt = this.now();
       session.scopes = [...validation.scopes];
-      return { ...session.profile };
+      await this.store.flush();
+      return this.store.sessions.get(key) === session ? { ...session.profile } : null;
     } catch (error) {
+      // Temporary upstream/storage outages deny this request but must not erase
+      // the only durable refresh credential. Retry validation before trusting it.
+      if (isAuthError(error) && error.code === "unavailable") {
+        session.validatedAt = -Number.MAX_SAFE_INTEGER;
+        throw error;
+      }
       this.invalidateToken(session.tokenFingerprint);
       if (refreshed) this.queueRevocation(key, { ...session, encryptedTokens: this.vault.seal(refreshed, key) });
+      await this.store.flush();
       throw isAuthError(error) ? error : new AuthError("invalid_token");
     }
   }
   async signOut(id?: string, csrf?: string) {
+    await this.store.ready();
     if (!isOpaqueToken(id)) return;
     const key = this.sessionKey(id), session = this.store.sessions.get(key);
     if (!session) return;
     if (!csrf || !safeEqual(csrf, this.csrfToken(id))) throw new AuthError("forbidden");
     this.invalidateToken(session.tokenFingerprint); // Includes any sessions sharing this token.
+    await this.store.flush(); // Never report sign-out success before durable deletion.
     await this.flushRevocations();
   }
   /** Server-only capability: never serialize its key or decrypted credentials. */
@@ -175,13 +210,15 @@ export class AuthService {
   }
   scopedSessionActive(key: string, scopes: string[]) {
     const session = this.store.sessions.get(key);
-    return !!session && session.expiresAt > this.now() && scopes.every((scope) => session.scopes?.includes(scope));
+    return this.store.available() && !!session && session.validatedAt > 0 && session.expiresAt > this.now() && scopes.every((scope) => session.scopes?.includes(scope));
   }
   async chatCredentials(key: string, forceValidation = false) {
     return this.scopedCredentials(key, [CHAT_SCOPE], forceValidation);
   }
   async scopedCredentials(key: string, scopes: string[], forceValidation = false) {
+    await this.store.ready();
     const profile = await this.profileByKey(key, forceValidation);
+    await this.store.ready();
     if (!profile) throw new AuthError("unauthorized");
     const session = this.store.sessions.get(key);
     if (!session) throw new AuthError("unauthorized");
@@ -190,23 +227,28 @@ export class AuthService {
   }
   revokeChat(key: string) {
     const session = this.store.sessions.get(key);
-    if (session) this.invalidateToken(session.tokenFingerprint);
+    if (session) { this.invalidateToken(session.tokenFingerprint); void this.store.flush().catch(() => { /* Fail closed; maintenance retries durable deletion. */ }); }
   }
   /** Trusted server capability for an owner's current subscriber verification. Never serialize. */
   async subscriptionCredentialsFor(broadcasterId: string) {
+    await this.store.ready();
     for (const [key, entry] of this.store.sessions) {
-      if (entry.profile.twitchUserId !== broadcasterId || !this.scopedSessionActive(key, [SUBSCRIPTION_SCOPE])) continue;
+      if (entry.profile.twitchUserId !== broadcasterId || entry.expiresAt <= this.now() || !entry.scopes.includes(SUBSCRIPTION_SCOPE)) continue;
       const credentials = await this.scopedCredentials(key, [SUBSCRIPTION_SCOPE], true);
       if (credentials.profile.twitchUserId === broadcasterId) return { ...credentials, key };
     }
     throw new AuthError("subscription_scope");
   }
   private async flushRevocations() {
+    await this.store.ready(); // A fenced maintenance run must not revoke the new process's grants.
     const pending = [...this.store.revocations].slice(0, 50);
     for (let offset = 0; offset < pending.length; offset += 10) {
       await Promise.all(pending.slice(offset, offset + 10).map(async ([id, entry]) => {
       try {
-        await this.twitch.revoke(this.vault.open(entry.encryptedTokens, entry.key).accessToken);
+        const token = this.vault.open(entry.encryptedTokens, entry.key).accessToken;
+        const fingerprint = this.vault.digest("access-token", token);
+        // Twitch can reuse a grant in a newer login; don't revoke a live session's token.
+        if (![...this.store.sessions.values()].some((s) => s.expiresAt > this.now() && s.tokenFingerprint === fingerprint)) await this.twitch.revoke(token);
         if (this.store.revocations.get(id) === entry) this.store.revocations.delete(id);
       } catch (error) {
         if ((isAuthError(error) && error.code === "invalid_token") || entry.expiresAt <= this.now()) this.store.revocations.delete(id);
@@ -214,17 +256,19 @@ export class AuthService {
       }
       }));
     }
+    await this.store.flush();
   }
   /** Called at startup and every minute, even without browser requests. */
   async maintain(forceValidation = false) {
     if (this.maintenanceRunning) return;
     this.maintenanceRunning = true;
     try {
+      await this.store.ready();
       for (const [key, entry] of this.store.states) if (entry.expiresAt <= this.now()) this.store.states.delete(key);
       const keys = [...this.store.sessions.keys()];
       for (let offset = 0; offset < keys.length; offset += 10) {
         await Promise.all(keys.slice(offset, offset + 10).map(async (key) => {
-          try { await this.profileByKey(key, forceValidation); } catch { /* Invalid/unverifiable sessions were removed. */ }
+          try { await this.profileByKey(key, forceValidation); } catch { /* Invalid sessions are removed; temporary outages remain fail-closed. */ }
         }));
       }
       await this.flushRevocations();

@@ -68,7 +68,7 @@ export function createAuthHandlers(service: () => AuthService, production: boole
         const code = errorCode(error);
         const response = privateResponse(NextResponse.json({ user: null, csrfToken: null, configured: code !== "configuration", error: code },
           { status: code === "configuration" || code === "unavailable" ? 503 : 401 }));
-        clear(response, names.session);
+        if (code !== "unavailable") clear(response, names.session);
         return response;
       }
     },
@@ -83,7 +83,8 @@ export function createAuthHandlers(service: () => AuthService, production: boole
         if (body.length > 1024) throw new AuthError("forbidden");
         await auth.signOut(request.cookies.get(names.session)?.value, new URLSearchParams(body).get("csrfToken") ?? undefined);
         auth.cancelLogin(request.cookies.get(names.state)?.value);
-        const response = redirect("/account?auth=signed_out");
+        const response = request.headers.get("accept") === "application/json"
+          ? privateResponse(NextResponse.json({ signedOut: true })) : redirect("/account?auth=signed_out");
         clear(response, names.session); clear(response, names.state);
         return response;
       } catch (error) { return privateResponse(NextResponse.json({ error: errorCode(error) }, { status: 403 })); }

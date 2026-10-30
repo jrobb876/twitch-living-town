@@ -9,6 +9,7 @@ import ChatConnection from "./chat-connection";
 import SubscriberHousing from "./subscriber-housing";
 import MayorPortrait from "./mayor-portrait";
 import TownPreview from "./town-preview";
+import ObsSettings from "./obs-settings";
 
 type Draft = { name: string; mayorName: string; look: MayorLook; personality: PersonalityName | "existing" };
 function MayorFields({ draft, change }: { draft: Draft; change: (patch: Partial<Draft>) => void }) {
@@ -101,6 +102,7 @@ function Dashboard({ initialTown, csrfToken }: { initialTown: StoredTown; csrfTo
       <ChatConnection mode="live" onMode={noMode} onSnapshot={noSnapshot} hasSavedTown showSourceControls={false} />
       <SubscriberHousing onPresentation={noPresentation} />
     </section>
+    <ObsSettings key={world.id} townId={world.id} csrfToken={csrfToken} />
   </>;
 }
 function TownSettings({ town, csrfToken, onSaved, onReload }: { town: StoredTown; csrfToken: string; onSaved: (town: StoredTown) => void; onReload: () => void }) {

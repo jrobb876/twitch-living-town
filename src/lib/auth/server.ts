@@ -1,5 +1,7 @@
 import "server-only";
-import { parseAuthConfig } from "./config";
+import { parseAuthConfig, authStorageMode } from "./config";
+import { DurableAuthStore } from "./durable-store";
+import { getTownRpc } from "../persistence/server";
 import { AuthService } from "./service";
 import { TwitchClient } from "./twitch";
 import { assertTownOwner } from "./authorization";
@@ -12,8 +14,9 @@ const globalAuth = globalThis as typeof globalThis & {
 export function getAuthService(): AuthService {
   if (!globalAuth.livingTownAuth) {
     const config = parseAuthConfig(process.env);
-    const service = new AuthService(config, new TwitchClient(config));
-    const timer = setInterval(() => { void service.maintain(); }, 60_000);
+    const store = authStorageMode(config, process.env.AUTH_STORAGE) === "supabase" ? new DurableAuthStore(getTownRpc()) : undefined;
+    const service = new AuthService(config, new TwitchClient(config), store);
+    const timer = setInterval(() => { void service.maintain().catch(() => {}); }, 60_000);
     timer.unref();
     globalAuth.livingTownAuth = { service, timer };
   }
@@ -21,8 +24,7 @@ export function getAuthService(): AuthService {
 }
 
 export async function initializeAuth() {
-  // No persisted sessions survive process startup. On HMR/startup re-entry,
-  // force verification of any sessions already held by this process.
+  // Recovered encrypted sessions are validated before use and periodically afterward.
   try { await getAuthService().maintain(true); } catch { /* Missing configuration leaves the town usable. Login reports a safe error. */ }
 }
 

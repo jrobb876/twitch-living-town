@@ -8,10 +8,10 @@ import { isPersistenceError, PersistenceError, persistenceMessages } from "./typ
 import { parseInput, townIdSchema, mayorInputSchema, townSettingsSchema } from "./validation";
 import type { TownPersistenceService } from "./service";
 
-function response(body: unknown, status = 200) {
+export function response(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "private, no-store, max-age=0", Vary: "Cookie", "Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff" } });
 }
-function failure(error: unknown) {
+export function failure(error: unknown) {
   if (isAuthError(error)) return response({ error: error.code, message: error.code === "forbidden" ? "This request is not authorized." : "Connect your Twitch account to manage your town." }, error.code === "forbidden" ? 403 : 401);
   const code = isPersistenceError(error) ? error.code : "unavailable";
   return response({ error: code, message: persistenceMessages[code] }, code === "forbidden" ? 403 : code === "not_found" ? 404 : code === "conflict" ? 409 : code === "invalid_input" ? 400 : 503);
@@ -32,8 +32,8 @@ export async function readTownInput(request: NextRequest) {
   } catch { throw new PersistenceError("invalid_input"); }
   finally { reader.releaseLock(); }
 }
-export function createTownHandlers(authService: () => AuthService, persistence: () => TownPersistenceService, production: boolean) {
-  async function identity(request: NextRequest, mutation = false) {
+export function createTownIdentity(authService: () => AuthService, production: boolean) {
+  return async function identity(request: NextRequest, mutation = false) {
     const auth = authService(), sessionId = request.cookies.get(cookieNames(production).session)?.value;
     if (mutation && (request.nextUrl.origin !== auth.config.origin || request.headers.get("origin") !== auth.config.origin
       || request.headers.get("sec-fetch-site") === "cross-site")) throw new AuthError("forbidden");
@@ -42,7 +42,10 @@ export function createTownHandlers(authService: () => AuthService, persistence: 
     const csrfToken = auth.csrfToken(sessionId);
     if (mutation && !safeEqual(request.headers.get("x-csrf-token") ?? "", csrfToken)) throw new AuthError("forbidden");
     return { profile, csrfToken };
-  }
+  };
+}
+export function createTownHandlers(authService: () => AuthService, persistence: () => TownPersistenceService, production: boolean) {
+  const identity = createTownIdentity(authService, production);
   return {
     async get(request: NextRequest) {
       try { const { profile, csrfToken } = await identity(request); return response({ town: await persistence().mine(profile), csrfToken, storage: "supabase" }); }

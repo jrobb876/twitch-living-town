@@ -6,8 +6,8 @@ import { createAuthHandlers } from "./http";
 import { fixture } from "./test-fixtures";
 import { AuthError, STATE_TTL_MS } from "./types";
 
-function setup(production = false) {
-  const f = fixture(production), handlers = createAuthHandlers(() => f.service, production), names = cookieNames(production);
+function setup(production = false, redirectUri?: string) {
+  const f = fixture(production, redirectUri), handlers = createAuthHandlers(() => f.service, production), names = cookieNames(production);
   const request = (path: string, cookies: Record<string, string> = {}, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     headers.set("Cookie", Object.entries(cookies).map(([key, value]) => `${key}=${value}`).join("; "));
@@ -16,9 +16,9 @@ function setup(production = false) {
   return { ...f, handlers, names, request };
 }
 
-for (const production of [false, true]) {
-  test(`login/callback set opaque HttpOnly SameSite cookies and no-store responses (${production ? "production" : "development"})`, async () => {
-    const f = setup(production), login = f.handlers.login(f.request("/api/auth/twitch/login?returnTo=https://evil.example"));
+for (const [production, redirectUri] of [[false, undefined], [true, undefined], [true, "http://localhost:3000/api/auth/twitch/callback"]] as const) {
+  test(`login/callback set opaque HttpOnly SameSite cookies and no-store responses (${production ? "production" : "development"}, ${redirectUri ? "localhost" : "default"})`, async () => {
+    const f = setup(production, redirectUri), login = f.handlers.login(f.request("/api/auth/twitch/login?returnTo=https://evil.example"));
     assert.equal(login.status, 303);
     const location = new URL(login.headers.get("location")!), cookie = login.cookies.get(f.names.state)!;
     assert.equal(location.origin, "https://id.twitch.tv");
@@ -92,11 +92,23 @@ test("public session endpoint returns signed-out state and clears invalid or rev
   assert.equal(revoked.cookies.get(f.names.session)?.maxAge, 0);
 });
 
+test("temporary verification outage denies identity without deleting the recoverable browser session", async () => {
+  const f = setup(), login = await f.login(); f.advance(30 * 60 * 1000);
+  f.twitch.validate = async () => { throw new AuthError("unavailable"); };
+  const response = await f.handlers.session(f.request("/api/auth/session", { [f.names.session]: login.id }));
+  assert.equal(response.status, 503); assert.equal(response.cookies.get(f.names.session), undefined);
+  assert.equal((await response.json()).user, null);
+});
+
 test("logout requires same-origin POST form with session-bound CSRF before revocation", async () => {
   const f = setup(), a = await f.login(), csrf = f.service.csrfToken(a.id);
   const headers = { Origin: f.config.origin, "Content-Type": "application/x-www-form-urlencoded" };
   for (const init of [
     { headers: { ...headers, Origin: "https://evil.example" }, body: `csrfToken=${csrf}` },
+    { headers: { ...headers, Origin: "null", "sec-fetch-site": "same-origin" }, body: `csrfToken=${csrf}` },
+    { headers: { "Content-Type": headers["Content-Type"] }, body: `csrfToken=${csrf}` },
+    { headers: { ...headers, Origin: `${f.config.origin}/forged` }, body: `csrfToken=${csrf}` },
+    { headers: { ...headers, Origin: `${f.config.origin}, https://evil.example` }, body: `csrfToken=${csrf}` },
     { headers, body: "csrfToken=forged" },
     { headers: { ...headers, "sec-fetch-site": "cross-site" }, body: `csrfToken=${csrf}` },
     { headers: { ...headers, "Content-Type": "application/json" }, body: "{}" },

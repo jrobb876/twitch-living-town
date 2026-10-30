@@ -178,6 +178,9 @@ export class SubscriberHousingService {
       await this.startSync(item);
     }
   }
+  overlayPresentations(userId: string, townId: string) {
+    return (this.presentations.get(userId) ?? []).filter((item) => item.townId === townId && item.expiresAt > this.now());
+  }
   async status(profile: AccountProfile) {
     const town = await this.persistence().mine(profile), houses = town ? housesIn(town.world) : [];
     const persisted = town?.world.subscriberSync ?? null, local = this.jobStatus.get(profile.twitchUserId);

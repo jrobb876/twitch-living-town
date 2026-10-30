@@ -2,6 +2,8 @@
 
 Apply migrations manually, in order, once to your chosen Supabase project. The application never applies migrations automatically. Tests apply the files only to disposable embedded PostgreSQL.
 
+**Current public-deployment sequence is 001–006.** Migration 006 (`202610290006_durable_auth.sql`) adds a private auth snapshot and three service-role-only RPCs; it does not rewrite towns or change existing RPC grants. Review/apply the full transaction once after 005, using the same trusted owner. An accidental rerun fails at table creation and rolls back. No direct auth table access is granted even to service_role. Public deployments require `AUTH_STORAGE=supabase`; local memory mode does not use this table. Keep `SESSION_SECRET` stable and never share the auth database between running production/staging/local instances. See [the deployment and recovery runbook](../DEPLOYMENT.md) before application. Earlier memory-only auth limitations below are superseded by 006; EventSub delivery queues/sockets remain process-local.
+
 - **001 — `migrations/202610280001_persistent_towns.sql`** creates the initial persistent town schema. Existing installations that applied 001 must not rerun it.
 - **002 — `migrations/202610280002_subscriber_housing.sql`** is required for Prompt 006. It permits verified inactive subscriber status, adds tier/gift/evidence columns, extends event receipt types with subscription end, adds the private last-sync projection with RLS and no direct role grants, and replaces the existing projection helper. It retains town data, geometry, customization, RPC names and allocation constraints. Review and apply the whole file in one SQL Editor transaction after 001. Track both files in migration history when using the CLI.
 
