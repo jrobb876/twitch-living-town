@@ -1,5 +1,11 @@
 # Twitch Living Town — Project specification
 
+## Expanded OBS demo (Prompt 012)
+
+`/demo/obs-preview` is a separate local development surface requiring explicit `TOWN_DEMO_MODE=true`, a localhost/127.0.0.1 host and public mode disabled. Production always returns 404. It generates exactly 25/50/100/200 fictional subscriber houses using existing allocation/expansion and customization rules. Seed/count determine the world; no account, persistence, subscriber reconciliation or production OBS access path is involved. Reset returns to the existing Overview, whose saved data is unchanged.
+
+Both display modes use the existing renderer. Mode switches reuse the renderer; count changes dispose the previous scene, including asynchronous startup. A 100 ms simulation timer advances bounded actors without React frame updates or geometry regeneration. The capture URL is parameterized and permanently labeled DEMO / SIMULATED DATA; there is no preview API, live token, shared-tab state or persistence. See README for loopback-only startup and manual OBS checks.
+
 ## Public deployment preparation (Prompt 011A)
 
 The supported public architecture is one always-running Node web service plus Supabase. Private migration 006 RPCs persist HMAC-keyed sessions and AES-GCM encrypted Twitch credentials/revocation work. Eight-hour expiry, same-origin CSRF, ownership checks and startup/periodic token validation remain mandatory. A new process fences previous auth writers; this is restart durability for one instance, not distributed auth. Localhost can retain memory-only auth. This section supersedes earlier descriptions of universally ephemeral sessions.

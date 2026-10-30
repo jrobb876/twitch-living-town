@@ -1,5 +1,12 @@
 # Technical decisions
 
+## 2026-10-30 — Expanded OBS preview (Prompt 012)
+
+1. Use a separate in-memory route, not an override of a saved town or a production overlay. No real account/settings reads, token authorization shortcut, persistence endpoint or subscriber reconciliation. Reset disposes the route and returns to the original Overview; saved data remains untouched.
+2. Require explicit local opt-in plus development runtime and a local host. Production builds deny the route even with TOWN_DEMO_MODE enabled. The README uses loopback binding and memory auth to avoid claiming production sessions. Existing simulator gates are preserved.
+3. Reuse the existing pure event allocator, append-only expansion, house presets and renderer. Synthetic non-Twitch identities and a demo-only world ID prevent confusion with verified subscriber evidence. No renderer rewrite or live event changes.
+4. Reuse renderer resources when switching display modes; rebuild once per changed count/seed and explicitly dispose late asynchronous initialization. Keep 10 Hz model updates outside React and use the existing Pixi ticker/interpolation. Capture URLs are standalone snapshots of settings, not synchronized controls; retain a visible demo label.
+
 ## 2026-10-29 — Production preparation (Prompt 011A)
 
 1. **Use one paid, continuously running Render Node service with existing Supabase.** Railway with sleeping disabled is a viable alternative. Keep auth timers, sync jobs and outbound EventSub sockets together; no worker or Redis is required for the supervised demonstration. Do not deploy to ordinary serverless functions or multiple replicas.

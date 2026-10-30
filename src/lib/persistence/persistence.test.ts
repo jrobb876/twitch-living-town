@@ -708,6 +708,72 @@ async function portalFixture() {
   }
   return { first, second, member, properties: await service.listOwnProperties(member) };
 }
+test("one login discovers pre-existing cross-town houses and can own a town without gaining foreign administration", async () => {
+  const f = await portalFixture(), neighbor = profile();
+  await service.applyVerifiedEvent({ source: "twitch_verified", event: { ...event(f.first.town.world.id, neighbor),
+    subscription: { active: true, tier: "1000", isGift: false, verifiedAt: NOW, source: "sync" } } });
+  // Both properties and their global identity were projected before this user's first OAuth login.
+  assert.equal((await db.query("select twitch_user_id from public.living_town_users where twitch_user_id=$1", [f.member.twitchUserId])).rows.length, 1);
+  const auth = fixture(); auth.twitch.identity = f.member; auth.twitch.validation.userId = f.member.twitchUserId;
+  const login = await auth.login();
+  assert.equal((await streamerAccess(auth.service, () => service, login.id)).destination, "/onboarding");
+  const mine = await service.create(login.profile, { name: "My own town", mayorName: "Mochi", seed: 42 });
+  assert.equal((await streamerAccess(auth.service, () => service, login.id)).town?.world.id, mine.world.id);
+  const verified: string[][] = [];
+  const handlers = createHouseHandlers(() => auth.service, () => service, async (broadcaster, user) => { verified.push([broadcaster, user]); }, false);
+  const request = (body?: unknown) => new NextRequest("http://localhost:3000/api/my-houses?userId=999", {
+    method: body ? "PATCH" : "GET", headers: { cookie: `${cookieNames(false).session}=${login.id}`,
+      origin: "http://localhost:3000", "content-type": "application/json", "x-csrf-token": auth.service.csrfToken(login.id) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const response = await handlers.list(request()); assert.equal(response.status, 200);
+  const listed = (await response.json()).houses as typeof f.properties;
+  assert.deepEqual(listed.map((p) => p.townId).sort(), [f.first.town.world.id, f.second.town.world.id].sort());
+  assert.ok(listed.every((p) => p.house.ownerTwitchUserId === f.member.twitchUserId && p.editable));
+  const first = listed.find((p) => p.townId === f.first.town.world.id)!, second = listed.find((p) => p.townId === f.second.town.world.id)!;
+  assert.equal(first.house.id, second.house.id, "House IDs can repeat safely across towns");
+  const target = (p: typeof first) => ({ townId: p.townId, houseId: p.house.id });
+  const draft = (p: typeof first, houseName: string) => ({ revision: p.revision, exterior: { ...exteriorOf(p.house), houseName } });
+  assert.equal((await handlers.save(request(draft(first, "First cottage")), target(first))).status, 200);
+  assert.deepEqual(await service.ownProperty(f.member, second.townId, second.house.id), second);
+  assert.equal((await handlers.save(request(draft(second, "Second cottage")), target(second))).status, 200);
+  assert.deepEqual(verified, [[f.first.owner.twitchUserId, f.member.twitchUserId], [f.second.owner.twitchUserId, f.member.twitchUserId]]);
+  assert.equal((await service.ownProperty(f.member, first.townId, first.house.id)).house.property?.customization.houseName, "First cottage");
+  assert.equal((await service.ownProperty(f.member, second.townId, second.house.id)).house.property?.customization.houseName, "Second cottage");
+  const othersHouse = (await service.listOwnProperties(neighbor))[0], before = await service.mine(f.first.owner);
+  assert.equal((await handlers.get(request(), target(othersHouse))).status, 403);
+  assert.equal((await handlers.save(request(draft(othersHouse, "Forged")), target(othersHouse))).status, 403);
+  await assert.rejects(service.saveMayor(login.profile, first.townId, before!.revision, { name: "Forged" }), code("forbidden"));
+  assert.equal(verified.length, 2, "Wrong owners must fail before membership verification");
+  assert.deepEqual(await service.mine(f.first.owner), before);
+  assert.deepEqual(await service.mine(login.profile), mine);
+});
+
+test("subscriber reconciliation deduplicates within each town while independent membership expiry preserves the other town", async () => {
+  const a = await housingSetup(), b = await housingSetup(), member = profile();
+  const entry = subscriber(member.twitchUserId);
+  a.setPages([[entry, entry]]); b.setPages([[entry], [entry]]);
+  await Promise.all([a.sync(), b.sync()]);
+  const initial = await service.listOwnProperties(member); assert.equal(initial.length, 2);
+  await Promise.all([a.sync(), b.sync()]);
+  const repeated = await service.listOwnProperties(member);
+  assert.deepEqual(repeated.map((p) => [p.townId, p.house.id]).sort(), initial.map((p) => [p.townId, p.house.id]).sort());
+  for (const h of [a, b]) {
+    const town = (await service.mine(h.owner))!;
+    assert.equal(town.world.residents.filter((r) => r.twitchUserId === member.twitchUserId).length, 1);
+    assert.equal(housesIn(town.world).filter((house) => house.ownerTwitchUserId === member.twitchUserId).length, 1);
+  }
+  const untouched = await service.mine(b.owner);
+  a.setPages([[]]); await a.sync();
+  const ended = await service.listOwnProperties(member); assert.equal(ended.length, 2);
+  assert.equal(ended.find((p) => p.townId === a.town.world.id)?.editable, false);
+  assert.equal(ended.find((p) => p.townId === b.town.world.id)?.editable, true);
+  assert.deepEqual(await service.mine(b.owner), untouched);
+  a.setPages([[entry]]); await a.sync();
+  const restored = await service.listOwnProperties(member); assert.ok(restored.every((p) => p.editable));
+  assert.deepEqual(restored.map((p) => [p.townId, p.house.id]).sort(), initial.map((p) => [p.townId, p.house.id]).sort());
+});
+
 test("portal finds only the authenticated user's properties across multiple towns, including retained legacy homes", async () => {
   const f = await portalFixture(); assert.equal(f.properties.length, 2); assert.ok(f.properties.every((p) => p.editable));
   assert.deepEqual(await service.listOwnProperties(profile()), []);

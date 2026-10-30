@@ -4,7 +4,44 @@ A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-i
 
 **Public deployment:** see [DEPLOYMENT.md](DEPLOYMENT.md) for the readiness assessment, Render/Railway comparison, environment checklist, manual migrations, HTTPS/OBS checks and restart/rollback procedures. Prompt 011A adds durable encrypted authentication, API rate budgets and `/api/health`. Public hosting requires one continuously running Node process, migration 006 and `AUTH_STORAGE=supabase`; no deployment or live migration has been performed.
 
+**Multi-town audit (Prompt 014):** see [MULTI_TOWN_AUDIT.md](MULTI_TOWN_AUDIT.md) for identity/ownership findings, authorization boundaries, missing navigation, subscription lifecycle and the proposed Extension adapter. Core cross-town ownership is supported; the full experience is partially supported. No identity migration is required.
+
 ## Run locally
+
+### Expanded OBS preview (Prompt 012, local development only)
+
+This separate in-memory preview is at **http://localhost:3000/demo/obs-preview**. It does not fetch an account, saved world, Twitch events or OBS grant. No preview API or persistence path exists. Its fictional Mochi and neighbors are independent of your configured live Mayor/town. The existing real OBS URLs and authorization are unchanged.
+
+Stop the local server before switching modes. In a dedicated PowerShell terminal, set process-only overrides (do not replace `.env.local`):
+
+```powershell
+cd F:\Development\TwitchLivingTown
+$env:TOWN_DEMO_MODE = "true"
+$env:PUBLIC_DEPLOYMENT = "false"
+$env:AUTH_STORAGE = "memory"
+npm.cmd run dev -- --hostname 127.0.0.1
+```
+
+Open the URL using `localhost`. Bind only to loopback; do not expose this development server through a tunnel or public host. Explicit `TOWN_DEMO_MODE=true` is required even in development. Public mode and all production builds (`npm run build` / `npm start`) deny this route regardless of the demo flag. This stricter gate applies only to the expanded OBS preview; older demo gates remain unchanged. Restart after changing flags. Using memory auth prevents this isolated process from claiming production's durable auth writer; it may require a fresh local login when returning to your town.
+
+Select **25, 50, 100 or 200** total houses, enter an integer seed, then click **Apply Preview**. Counts replace the previous total rather than adding to it. The status line shows current house, district and plot counts; the scene always displays **DEMO / SIMULATED DATA**. Same count/seed produces the same geometry, fictional owners and exteriors.
+
+Use **Presentation** to switch instantly between Living Town (automatic neighborhood camera following Mochi) and Mayor Spotlight (foreground Mayor and cropped background). Spotlight offers background pan/zoom/recenter buttons in the control view. Existing production camera behavior is untouched. Click **Open OBS capture view** and copy that tab's complete URL into an OBS Browser Source at 1920×1080. Example:
+
+```text
+http://localhost:3000/demo/obs-preview?capture=1&count=200&seed=42&mode=living-town
+http://localhost:3000/demo/obs-preview?capture=1&count=200&seed=42&mode=spotlight
+```
+
+The capture view omits controls but retains the demo label/counts. No key or Twitch login is needed. For another count/mode, apply it in the control view and open/copy the new capture URL. Existing capture windows do not receive changes from other tabs. Custom camera adjustments are local to the control view; capture uses standard OBS framing.
+
+**Reset Preview · return to my town** leaves the preview, destroys its renderer/timer and opens `/`. The existing Town Overview loads the actual saved town when signed in; select/reload it there if needed. No saved layout, house customization, Mayor setting or subscriber record was edited. If using an isolated memory-auth session, sign in again to load your saved town. To return to your normal environment, stop the server and close this dedicated terminal (or remove these three process overrides), then start your usual server. Do not enable durable auth against production while another instance owns it.
+
+Refreshing the control page resets to its URL/default 25-house preview; refreshing a capture URL reconstructs its deterministic simulated scene. Nothing is stored in localStorage or a database. Each applied world is generated once per scene lifecycle; animation ticks retain geometry, mode switches reuse GPU resources, and actors remain capped at 24. A 200-house apply can briefly occupy the main thread. No FPS claim or automated browser/WebGL benchmark was made; manually check both modes in Chrome/OBS, repeated count switches, labels and cleanup at your capture resolution.
+
+Validation for this milestone: lint, TypeScript, all 190 tests, production build and Git whitespace checks passed. A temporary production server with real credentials disabled returned 404 for control/capture previews even with the demo flag true; it was stopped after the direct HTTP checks. Existing expansion and production OBS authorization tests remain passing.
+
+### Run the main application
 
 Use Node.js 22 or newer and npm. From PowerShell:
 

@@ -1,5 +1,23 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 014 — Unified identity and multi-town audit
+
+- [x] Review migrations 001–006, contextual roles, pre-login allocation, cross-town discovery/editing, subscription reconciliation and private RPC boundaries. Findings: [MULTI_TOWN_AUDIT.md](MULTI_TOWN_AUDIT.md).
+- [x] Add integrated regressions for one account owning a town and pre-existing properties elsewhere, neighbor/foreign-town denial, and independent duplicate sync/expiry/restoration across broadcasters.
+- [x] Lint, TypeScript, all 192 tests, production build and Git diff checks passed. No runtime code, schema, live data or entitlement-policy changes.
+- [ ] Separate prompt: broadcaster attribution and correct public town visit links, then a unified account landing page.
+- [ ] Separate design: broadcaster grant lifecycle independent of interactive sessions if continuous editing is required; Extension JWT/identity-sharing adapter and bounded OBS interactions. No Extension or entitlement-policy changes in this audit.
+
+## Prompt 012 — Local expanded-town OBS preview
+
+- [x] Add separately gated localhost preview: explicit demo flag required, production denied even with the flag enabled; no preview mutation/API endpoint.
+- [x] Generate exact deterministic 25/50/100/200 totals using existing subscriber allocation and district expansion, fictional identities and existing exterior presets.
+- [x] Reuse both OBS modes, show persistent demo labels/counts, provide standalone capture URLs and reset navigation to the unchanged Overview.
+- [x] Keep state in memory, cap actors, reuse geometry/mode resources and dispose timers/renderers during switching/unmount/late initialization.
+- [x] Lint, TypeScript and all 190 tests pass, including nine preview regressions and existing expansion/OBS authorization suites.
+- [x] Production build and Git diff checks pass. Direct HTTP checks on a temporary production server with real credentials disabled returned 404 for control/capture routes despite TOWN_DEMO_MODE=true, and for the absent preview API. The temporary server was stopped.
+- [ ] Manual Chrome/OBS 1920×1080 visual/performance check. No FPS measured, browser automation, live database changes, migrations, commit or push.
+
 ## Prompt 011C — Persistent-auth logout 403
 
 - [x] Trace native form navigation plus global no-referrer policy to null Origin and rejection before cookie lookup, CSRF evaluation or durable sign-out. The rejected request does not revoke its session.
