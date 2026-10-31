@@ -44,10 +44,12 @@ export default function EventSimulator({ state, onEvent, onReset }: Props) {
       <button onClick={() => send({ ...base(), type: "CHAT_MESSAGE", user: { twitchUserId: "sim-spammer", displayName: "Repeat chatter" }, message: "Same message" })}>Repeated chat</button>
       <button onClick={() => send({ ...base(), type: "NEW_FOLLOWER", user: identity("Follower") })}>New follower</button>
       <button onClick={() => send({ ...base(), type: "NEW_SUBSCRIBER", user: identity("Subscriber") })}>New subscriber</button>
-      <button onClick={() => {
+      <button disabled={!state.world.residents.some((resident) => resident.isSubscriber)} onClick={() => {
         const existing = state.world.residents.find((resident) => resident.isSubscriber);
-        send({ ...base(), type: "RESUBSCRIPTION", user: existing ?? identity("Returning subscriber"), cumulativeMonths: (existing?.subscriptionMonths ?? 1) + 1 });
+        if (existing) send({ ...base(), type: "RESUBSCRIPTION", user: existing, cumulativeMonths: existing.subscriptionMonths + 1 });
       }}>Resubscription</button>
+      <button onClick={() => send({ ...base(), type: "NEW_SUBSCRIBER", user: identity("Gift recipient"),
+        subscription: { active: true, tier: "1000", isGift: true, source: "eventsub", verifiedAt: state.runtime.now } })}>Individual gift · simulated</button>
       <button onClick={() => {
         const gifts = { groupId: `sim-gift-${crypto.randomUUID()}`, gifter: identity("Gifter"), recipients: [identity("Gift neighbor"), identity("Gift neighbor")] };
         setLastGifts(gifts); send({ ...base(), type: "GIFT_SUBSCRIPTION", ...gifts, total: 2 });

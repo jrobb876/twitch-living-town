@@ -96,7 +96,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
           <div className="village-frame">
             <div className="map-topline"><span className="map-badge"><span className="green-dot" />{world.name} <span className="badge-divider">/</span> Town view</span><span className="weather"><span>☀</span> A lovely day to wander</span></div>
             <TownCanvas key={session.world.id} session={session} />
-            {runtime.effects.length > 0 && <div className="town-announcement" role="status">{runtime.effects.findLast((e) => e.kind === "neighborhood")?.label ?? runtime.effects.at(-1)!.label}{runtime.effects.some((e) => e.kind === "neighborhood") && " Use Fit town (0) to explore."}</div>}
+            {runtime.effects.length > 0 && <div className="town-announcement" role="status">{runtime.reactionPlayback?.active?.label ?? runtime.effects.findLast((e) => e.kind === "neighborhood")?.label ?? runtime.effects.at(-1)!.label}{runtime.effects.some((e) => e.kind === "neighborhood") && " Use Fit town (0) to explore."}</div>}
             <div className="map-bottomline"><span><i className="map-dot" />Procedurally grown, with love</span><span>Drag to explore <b>·</b> Scroll to zoom</span></div>
           </div>
           <aside className="town-sidebar">

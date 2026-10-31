@@ -4,7 +4,7 @@ import { calculateActivity } from "../simulation/activity";
 import type { TownSession } from "../simulation/types";
 import type { OverlaySnapshot } from "./service";
 import { defaultDisplay } from "./model";
-import { ReactionQueue, reactionLabels } from "./reactions";
+import { normalizeReaction } from "../mayor/reactions";
 import { PresentationCursor } from "../simulation/presentation-cursor";
 import { reconcileResidentSources, type ResidentSource } from "../simulation/residents";
 
@@ -13,7 +13,6 @@ export class OverlayPlayback {
   session: TownSession | null = null;
   revision: number | null = null;
   settings = defaultDisplay;
-  private queue = new ReactionQueue();
   private cursor = new PresentationCursor();
   private reactionId: string | null = null;
   private populationEpoch: string | null = null;
@@ -37,26 +36,32 @@ export class OverlayPlayback {
     const samples = snapshot.activity.sampleAgesMs.filter((age) => Number.isFinite(age) && age >= 0 && age < 60000).slice(-2000)
       .map((age, i) => ({ userId: `activity-${i}`, message: "", at: now - age }));
     this.session.runtime.activity = calculateActivity(samples, now);
-    this.queue.offer(this.cursor.take(snapshot.reactions, now), now);
+    this.session.runtime.effects = [...this.session.runtime.effects, ...this.cursor.take(snapshot.reactions, now).map((cue) => {
+      const reaction = normalizeReaction(cue);
+      return { id: cue.id, kind: "gift" as const, position: cue.position, startedAt: now, expiresAt: cue.expiresAt,
+        label: reaction.label, reaction: { kind: cue.kind, quantity: reaction.quantity } };
+    })].slice(-32);
   }
   tick(now: number) {
     if (!this.session) return null;
     this.session = tickTown(this.session, now);
-    const reaction = this.queue.tick(now);
+    const reaction = this.session.runtime.reactionPlayback?.active;
     const changed = (reaction?.id ?? null) !== this.reactionId;
     if (changed) {
       this.reactionId = reaction?.id ?? null;
-      this.session.runtime.effects = reaction ? [{ id: reaction.id, kind: "gift", position: reaction.position,
-        label: reactionLabels[reaction.kind], startedAt: now, expiresAt: reaction.until }] : [];
-      this.session.runtime.mayor.celebrationUntil = reaction?.until ?? 0;
-      this.session.runtime.mayor.behavior = reaction ? "celebrating" : "idle";
     }
-    return changed && reaction ? reaction : null;
+    this.session.runtime.effects = reaction ? [{ id: reaction.id, kind: "gift", position: this.session.runtime.mayor.position,
+      label: reaction.label, startedAt: reaction.startedAt, expiresAt: reaction.until, reaction: { kind: reaction.kind, quantity: reaction.quantity } }] : [];
+    return changed && reaction ? { ...reaction, position: this.session.runtime.mayor.position } : null;
   }
   unavailable() {
     // No artificial messages on an outage; existing activity decays naturally.
-    this.queue.cancel(); this.reactionId = null;
-    if (this.session) { this.session.runtime.effects = []; this.session.runtime.mayor.celebrationUntil = 0; }
+    this.reactionId = null;
+    if (this.session) {
+      this.session.runtime.effects = []; this.session.runtime.mayor.celebrationUntil = 0; this.session.runtime.mayor.behavior = "idle";
+      const state = this.session.runtime.reactionPlayback;
+      if (state) this.session.runtime.reactionPlayback = { ...state, active: null, pending: [], chainStartedAt: null };
+    }
   }
-  clear() { this.unavailable(); this.queue.clear(); this.cursor.clear(); this.session = null; this.revision = null; this.populationEpoch = null; this.populationSources = []; }
+  clear() { this.unavailable(); this.cursor.clear(); this.session = null; this.revision = null; this.populationEpoch = null; this.populationSources = []; }
 }

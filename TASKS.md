@@ -1,5 +1,29 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 019B — Town Overview loading loop
+
+- [x] Compare all uncommitted Prompt 019 changes with the last committed version; retain completed reactions. Trace Overview, account provider, loading boundaries, saved-town/chat/subscriber polling, stable renderer initialization and navigation.
+- [x] Reproduce development HMR `restart` instructions for the shared runtime chunk using HTTP/WebSocket protocol probes, including public home with and without the tracking query. Next's runtime maps these instructions to document reloads; the browser's repeated Fast Refresh messages agree. No React/auth redirect loop was found.
+- [x] Change only the default development bundler to Webpack; retain HMR, authentication checks, application polling, production bundling and all town/OBS code.
+- [x] Add isolated runtime checks plus session/Overview rendering and bundler regression tests. Existing reaction, live connection, durable auth and saved-town tests remain in the full suite.
+- [x] Final TypeScript, lint, all 256 tests (zero failures/skips), production build, isolated development HMR/HTTP check, production HTTP check and tracked/new-file Git diff checks passed. Runtime probes use synthetic memory auth and no database credentials; existing durable-auth and local PostgreSQL fixture tests remain passing.
+- [ ] Manual Chrome/OBS retest after fully restarting the development server. Upstream Turbopack's internal invalidation cause remains unverified; HTTP tests do not execute browser hydration/Pixi.
+- [x] User confirmed both Overview URLs stay usable without the loading loop after restarting with Webpack.
+- [ ] Investigate subsequent manual report of a persistent "Checking account…" label. The dev log shows a blocked HMR origin from 127.0.0.1; retry on the registered localhost origin and inspect whether the browser session request is missing, pending or completed before changing authentication.
+
+## Prompt 019 — Mayor event celebrations and OBS reactions
+
+- [x] Recover interrupted task: working tree clean; earlier patch was rejected before any files changed. Preserve Prompt 018 and reuse the completed audit.
+- [x] Shared normalized cue, priority/duration/safe labels/visual metadata, pure per-view bounded queue and deterministic animation poses.
+- [x] Subscriber hop, resub dance, individual gift wave, larger verified gift-batch celebration/count and optional genuinely-new-follower wave. Historical import/sync stays quiet.
+- [x] Integrate existing verified presentations with Overview and both OBS modes; pause/resume the Mayor without changing resident, subscriber, house or expansion reconciliation.
+- [x] Preserve four appearances; subtle energy variation, reduced-motion changes, fixed particle pools, cleanup and Spotlight effect bounds including transparent mode.
+- [x] Conservative gift-only coalescing without guessed batch relationships; unrelated normal subscriptions/resubs retain queue eligibility. Bound continuous playback and retain initial-buffer/duplicate protection.
+- [x] Add individual gift to the existing simulator and transient reaction buttons to the authorized local OBS preview, with persistent simulated labels and capture display settings.
+- [x] Add mapping, verified presentation, burst/priority/bounds, dedup/replay, graphics/personality/reduced-motion, both OBS modes, disposal and no-world-mutation regressions. Update old movement tests to distinguish immediate reactions from later existing house visits.
+- [x] Final lint (zero warnings), TypeScript, all 254 tests (zero failures/skips), production build and tracked/new-file diff checks passed. Ten tests added, with existing verified housing presentation assertions strengthened. Existing disposable PostgreSQL fixtures only; no live service verification. One focused test invocation hit the Windows sandbox user-info error and passed execution after approved escalation; the full suite ran via the existing npm test command.
+- [ ] Manual real Twitch and 1920×1080 OBS/Chrome checks in README. No browser automation, live database changes, migration execution, commits, pushes or deployment.
+
 ## Prompt 018 — Community Import and live follower integration
 
 - [x] Inspect and reuse OAuth/session protection, subscriber synchronization, persistent CAS/event receipts, shared EventSub and onboarding.

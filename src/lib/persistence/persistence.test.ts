@@ -669,6 +669,23 @@ test("gift aggregate celebrates once; verified recipients, API sync and duplicat
   assert.equal(loaded.world.giftGroups.length, 1); assert.equal(loaded.world.giftGroups[0].gifter, null);
   assert.equal(loaded.world.giftGroups[0].announcedCount, 3); assert.deepEqual(loaded.world.giftGroups[0].recipientIds, []);
   assert.equal((await h.housing.status(h.owner)).presentations.filter((p) => p.effects.some((e) => e.kind === "gift")).length, 1);
+  const batchReaction = (await h.housing.status(h.owner)).presentations.flatMap((p) => p.effects).find((e) => e.reaction?.kind === "gift");
+  assert.equal(batchReaction?.reaction?.quantity, 3, "verified quantity survives durable event processing and ephemeral presentation");
+});
+
+test("verified individual gifts and unrelated subscriptions carry distinct cues through housing presentation without duplicate allocation", async () => {
+  const h = await housingSetup();
+  const recipient = housingNotification("channel.subscribe", h.owner.twitchUserId, "individual-gift", h.now());
+  recipient.payload.event.is_gift = true;
+  h.housing.enqueue(h.owner, h.grant.key, recipient); await h.drain();
+  h.housing.enqueue(h.owner, h.grant.key, recipient); await h.drain();
+  const ordinary = housingNotification("channel.subscribe", h.owner.twitchUserId, "unrelated-sub", h.now());
+  ordinary.payload.event.user_id = "888"; ordinary.payload.event.is_gift = false;
+  h.housing.enqueue(h.owner, h.grant.key, ordinary); await h.drain();
+  const cues = (await h.housing.status(h.owner)).presentations.flatMap((p) => p.effects).flatMap((e) => e.reaction ? [e.reaction.kind] : []);
+  assert.deepEqual(cues, ["gift-recipient", "subscriber"]);
+  const saved = (await service.mine(h.owner))!;
+  assert.equal(saved.world.residents.length, 2); assert.equal(housesIn(saved.world).filter((house) => house.ownerTwitchUserId).length, 2);
 });
 
 test("resub message rechecks entitlement; cancellation retains customization and stale evidence cannot reactivate", async () => {
@@ -678,6 +695,7 @@ test("resub message rechecks entitlement; cancellation retains customization and
   h.advance(10);
   const resub = housingNotification("channel.subscription.message", h.owner.twitchUserId, "resub", h.now());
   h.housing.enqueue(h.owner, h.grant.key, resub); await h.drain();
+  assert.ok((await h.housing.status(h.owner)).presentations.some((p) => p.effects.some((e) => e.reaction?.kind === "resubscription")));
   saved = (await service.mine(h.owner))!; assert.equal(saved.world.residents[0].subscriptionMonths, 7); assert.equal(saved.world.residents[0].houseId, home.id);
   h.advance(10);
   const ended = housingNotification("channel.subscription.end", h.owner.twitchUserId, "ended", h.now());

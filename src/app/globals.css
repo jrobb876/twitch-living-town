@@ -15,6 +15,9 @@ html:has(.obs-root), body:has(.obs-root) { background: transparent; overflow: hi
 .preview-panel input,.preview-panel select { width:100%; padding:10px; border:1px solid #c8cdbb; border-radius:9px; background:#fffdf7; color:#304f42; }
 .preview-panel .account-button { display:inline-block; margin:4px 0; }
 .preview-camera { position:absolute; bottom:55px; right:20px; display:flex; gap:6px; }
+.preview-reactions { position:absolute; top:20px; left:50%; transform:translateX(-50%); display:flex; flex-wrap:wrap; gap:6px; width:310px; max-width:calc(100% - 40px); padding:10px; border-radius:10px; background:#fffaf0e8; color:#304f42; font:12px Arial,sans-serif; }
+.preview-reactions span { width:100%; font-weight:bold; letter-spacing:1px; }
+.preview-reactions button { border:1px solid #c8cdbb; border-radius:7px; padding:7px; background:#fffdf7; }
 .preview-camera button { background:#fffaf0; color:#304f42; border:1px solid #c8cdbb; padding:8px 12px; border-radius:9px; }
 @media(max-width:700px) { .preview-panel { top:64px; max-height:55%; width:280px; } .preview-badge { font-size:11px; } .preview-root .obs-status { left:14px; right:14px; text-align:center; font-size:11px; } }
 .workspace-field select { padding: 10px; border: 1px solid #c8cdbb; border-radius: 10px; background: #fffaf0; color: #304f42; }

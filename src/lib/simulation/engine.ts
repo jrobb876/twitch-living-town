@@ -5,15 +5,22 @@ import type { EventOutcome, Resident, TownEffect, TownEvent, TownSession, Twitch
 import { addDistrict, availablePlots } from "./expansion";
 import { PLANNING } from "../town/planning";
 import { MAX_RESIDENT_ACTORS, reconcileResidents } from "./residents";
+import { advanceReactions, eventReaction, reactionFromEffect, reactionLabels } from "../mayor/reactions";
 
 /** Advance transient state using an injected monotonic millisecond clock. */
 export function tickTown(state: TownSession, now: number): TownSession {
   if (!Number.isFinite(now) || now <= state.runtime.now) return state;
   const dt = Math.min(250, now - state.runtime.now);
   const activity = calculateActivity(state.runtime.activity.samples, now);
+  const reactionPlayback = advanceReactions(state.runtime.reactionPlayback,
+    state.runtime.effects.flatMap((effect) => { const reaction = reactionFromEffect(effect); return reaction ? [reaction] : []; }), now);
+  const active = reactionPlayback.active;
+  const previousMayor = state.runtime.reactionPlayback?.active && !active ? { ...state.runtime.mayor, celebrationUntil: 0, behavior: "idle" as const } : state.runtime.mayor;
   const runtime = { ...state.runtime, now, activity,
+    reactionPlayback,
     effects: state.runtime.effects.filter((effect) => effect.expiresAt > now),
-    mayor: advanceMayor(state.runtime.mayor, state.world, now, dt, activity.score),
+    mayor: active ? { ...previousMayor, behavior: "celebrating" as const, celebrationUntil: active.until }
+      : advanceMayor(previousMayor, state.world, now, dt, activity.score),
     residentActors: state.runtime.residentActors.map(({ residentId, actor }, index) => ({ residentId,
       actor: advanceActor(actor, state.world, now, dt, activity.score, index + 1) })),
   };
@@ -189,6 +196,17 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     }
   }
   const waiting = world.residents.filter((record) => record.housingStatus === "waiting").length;
+  const newEffects = runtime.effects.filter((effect) => !state.runtime.effects.some((prior) => prior.id === effect.id));
+  for (const effect of newEffects) if (effect.kind !== "neighborhood") effect.reaction = null;
+  const reaction = options.historical ? null : eventReaction(event, state.world);
+  if (reaction) {
+    if (reaction.kind === "gift" || reaction.kind === "gift-recipient") for (const item of newEffects) if (item.kind !== "neighborhood") item.label = reactionLabels[reaction.kind];
+    const effect = newEffects.find((item) => item.kind !== "neighborhood");
+    if (effect) effect.reaction = reaction;
+    else runtime.effects.push({ id: `${event.id}:mayor`, kind: "housewarming", position: { ...runtime.mayor.position },
+      label: reactionLabels[reaction.kind], startedAt: now, expiresAt: now + 12000, reaction });
+    runtime.effects = runtime.effects.slice(-32);
+  }
   if (waiting && event.type === "GIFT_SUBSCRIPTION") outcome.message += ` ${waiting} subscriber(s) await more housing.`;
   world.processedEvents.push(outcome);
   if (outcome.residentIds.length || outcome.houseIds.length) runtime.residentActors = reconcileResidents(world, now, runtime.residentActors, state.world);

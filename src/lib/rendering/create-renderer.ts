@@ -6,6 +6,7 @@ import { clampCameraPosition, fitCamera, coverCamera, worldBounds, followCamera,
 import { rendererViewport } from "./viewport";
 import { residentVisible } from "./resident-visibility";
 import { spotlightComposition, type DisplaySettings } from "../overlay/model";
+import { attachMayorReaction } from "./mayor-reaction";
 
 export type TownRenderer = {
   update: (session: TownSession) => void;
@@ -50,14 +51,17 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     if (backdrop) app.stage.addChild(backdrop);
     const world = new Container(); app.stage.addChild(world);
     let foreground = display ? drawMayor(initial.world.mayor.appearance?.preset) : null;
+    let foregroundReaction = foreground ? attachMayorReaction(foreground) : null;
     if (foreground) app.stage.addChild(foreground.mayor);
     let focus: { x: number; y: number; until: number } | null = null;
     let scene = drawTown(overviewOf(initial.world)); world.addChild(scene.world);
     let actors = scene.actors;
-    let { mayor, body, tail } = drawMayor(initial.world.mayor.appearance?.preset); actors.addChild(mayor);
+    let mayorView = drawMayor(initial.world.mayor.appearance?.preset);
+    let { mayor, body, tail } = mayorView; actors.addChild(mayor);
+    let mayorReaction = attachMayorReaction(mayorView);
     const badge = new Text({ text: initial.world.mayor.name, style: { fontFamily: "Arial", fontWeight: "600", fontSize: 11, fill: 0x405e4a } });
     badge.anchor.set(0.5); badge.y = -66; mayor.addChild(badge);
-    let elapsed = 0;
+    let elapsed = 0, snapshotElapsed = 0;
     mayor.position.set(initial.runtime.mayor.position.x, initial.runtime.mayor.position.y);
     const residents = new Map<string, Graphics>();
     const effectsLayer = new Container(); world.addChild(effectsLayer);
@@ -68,11 +72,13 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       if (destroyed) return;
       if (next.world.mayor.appearance?.preset !== snapshot.world.mayor.appearance?.preset) {
         const previous = mayor; badge.removeFromParent();
-        ({ mayor, body, tail } = drawMayor(next.world.mayor.appearance?.preset));
+        mayorView = drawMayor(next.world.mayor.appearance?.preset);
+        ({ mayor, body, tail } = mayorView); mayorReaction = attachMayorReaction(mayorView);
         mayor.position.copyFrom(previous.position); mayor.addChild(badge); actors.addChild(mayor);
         previous.destroy({ children: true });
         if (foreground) {
           foreground.mayor.destroy({ children: true }); foreground = drawMayor(next.world.mayor.appearance?.preset);
+          foregroundReaction = attachMayorReaction(foreground);
           app.stage.addChild(foreground.mayor);
         }
       }
@@ -104,7 +110,7 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
         }
       }
       for (const [id, visual] of effects) if (!next.runtime.effects.some((effect) => effect.id === id)) { visual.destroy({ children: true }); effects.delete(id); }
-      for (const effect of next.runtime.effects) if (!effects.has(effect.id)) {
+      for (const effect of next.runtime.effects) if (!effects.has(effect.id) && effect.reaction === undefined) {
         const visual = new Container(); visual.position.set(effect.position.x, effect.position.y - 85);
         const text = new Text({ text: effect.label, style: { fontFamily: "Arial", fontSize: 13, fontWeight: "600", fill: 0x425e4d, wordWrap: true, wordWrapWidth: 210, align: "center" } });
         text.anchor.set(0.5);
@@ -112,9 +118,13 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
         for (let i = 0; i < 8; i++) backing.circle(-50 + i * 15, -28 - (i % 3) * 8, 3).fill([0xe5b093, 0xa0b875, 0xb3a2c6][i % 3]);
         visual.addChild(backing, text); effectsLayer.addChild(visual); effects.set(effect.id, visual);
       }
-      snapshot = next;
+      snapshot = next; snapshotElapsed = elapsed;
     };
-    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const motionPreference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let reducedMotion = motionPreference.matches;
+    const motionChanged = () => { reducedMotion = motionPreference.matches; };
+    motionPreference.addEventListener("change", motionChanged);
+    cleanup.push(() => motionPreference.removeEventListener("change", motionChanged));
     app.ticker.maxFPS = 60;
     app.ticker.add((ticker) => {
       const dt = Math.min(ticker.deltaMS / 1000, 0.05); elapsed += dt;
@@ -129,6 +139,10 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       body.y = reducedMotion ? 0 : celebrating ? -Math.abs(Math.sin(elapsed * 8)) * 6 : Math.sin(elapsed * (walking ? 12 : 2.5)) * (walking ? 2 : 0.8);
       body.rotation = !reducedMotion && walking ? Math.sin(elapsed * 12) * 0.035 : 0;
       tail.rotation = reducedMotion ? 0 : Math.sin(elapsed * 2) * 0.1;
+      const reaction = snapshot.runtime.reactionPlayback?.active;
+      const animationNow = snapshot.runtime.now + Math.min(120, (elapsed - snapshotElapsed) * 1000);
+      mayorReaction.update(reaction, animationNow, snapshot.world.mayor.personality, reducedMotion);
+      badge.visible = !reaction;
       if (display && foreground) {
         const composition = spotlightComposition(app.screen.width, app.screen.height, display);
         foreground.mayor.visible = composition.visible;
@@ -137,9 +151,11 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
         const energy = snapshot.world.mayor.personality?.energy ?? 0.5;
         foreground.body.y = reducedMotion ? 0 : celebrating ? -Math.abs(Math.sin(elapsed * 8)) * 3 : Math.sin(elapsed * (1.5 + energy)) * 0.8;
         foreground.tail.rotation = reducedMotion ? 0 : Math.sin(elapsed * (1 + energy)) * 0.1;
+        foreground.body.rotation = 0;
+        foregroundReaction?.update(reaction, animationNow, snapshot.world.mayor.personality, reducedMotion);
         if (display.mode === "living-town") {
           if (focus && focus.until <= elapsed) focus = null;
-          const camera = followCamera(bounds, app.screen.width, app.screen.height, focus ?? mayor);
+          const camera = followCamera(bounds, app.screen.width, app.screen.height, reaction ? mayor : focus ?? mayor);
           const position = reducedMotion ? camera : smoothCamera(world.position, camera, dt);
           world.scale.set(camera.scale); world.position.set(position.x, position.y); cull();
         }

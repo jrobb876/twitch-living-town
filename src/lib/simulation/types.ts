@@ -1,6 +1,7 @@
 import type { Point, Town } from "../town/types";
 import type { MayorLook, MayorPersonality } from "../mayor/presets";
 import type { CommunityImport } from "../community/types";
+import type { ReactionKind, ReactionState } from "../mayor/reactions";
 
 export type TwitchIdentity = { twitchUserId: string; displayName: string };
 /** World units are independent of camera zoom, viewport size and asset resolution. */
@@ -62,6 +63,7 @@ export type TownWorld = {
   communityImport?: CommunityImport;
 };
 export type TownEffect = {
+  reaction?: { kind: ReactionKind; quantity?: number } | null;
   id: string; kind: "arrival" | "housewarming" | "welcome-back" | "gift" | "raid" | "neighborhood";
   position: WorldPosition; label: string; startedAt: number; expiresAt: number;
 };
@@ -79,6 +81,7 @@ export type MayorState = ActorState & {
   celebrationUntil: number;
 };
 export type TownRuntime = {
+  reactionPlayback?: ReactionState;
   now: number; activity: Activity; mayor: MayorState;
   residentActors: { residentId: string; actor: ActorState }[];
   effects: TownEffect[];

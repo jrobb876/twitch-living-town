@@ -165,7 +165,7 @@ test("Mayor approaches a new house, celebrates and returns to wandering without 
   let sawCelebration = false, sawWandering = false;
   for (let now = 100; now < 100000; now += 100) {
     state = tickTown(state, now);
-    if (state.runtime.mayor.behavior === "celebrating") {
+      if (state.runtime.mayor.behavior === "celebrating" && !state.runtime.reactionPlayback?.active) {
       assert.equal(state.runtime.mayor.nodeId, destination); sawCelebration = true;
     }
     if (sawCelebration && state.runtime.mayor.behavior === "wandering") { sawWandering = true; break; }
@@ -175,6 +175,7 @@ test("Mayor approaches a new house, celebrates and returns to wandering without 
 
 test("activity increases resident and Mayor travel speed", () => {
   let peaceful = apply(session(), { type: "NEW_FOLLOWER", user: user("a") });
+  peaceful.runtime.effects = []; // Compare ordinary travel outside the new follower's brief wave.
   peaceful.runtime.mayor.restUntil = 0;
   let lively = structuredClone(peaceful);
   for (let index = 0; index < 8; index++) lively = apply(lively, { type: "CHAT_MESSAGE", user: user(`chatter-${index}`), message: "hi" });

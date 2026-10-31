@@ -27,5 +27,7 @@ export function overlayWorld(world: TownWorld): TownWorld {
 export function spotlightComposition(width: number, height: number, settings: DisplaySettings) {
   return { visible: settings.mode === "spotlight", showTown: settings.mode === "living-town" || settings.background === "town",
     x: width * (settings.side === "left" ? 0.23 : 0.77), y: height * 0.84,
-    scale: Math.min(height / 115, width / 240) * settings.scale };
+    // Include raised paws, gift badge and particles, on either side and at every configured scale.
+    scale: Math.min(Math.min(height / 115, width / 240) * settings.scale,
+      width * 0.22 / 38, height * 0.82 / 76, height * 0.15 / 12) };
 }

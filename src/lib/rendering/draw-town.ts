@@ -216,6 +216,9 @@ export function drawMayor(preset?: string) {
   cat.roundRect(-12, -15, 24, 6, 3).fill(0x72998e);
   cat.poly([3, -12, 10, -11, 7, 0, 2, -4]).fill(0x72998e);
   cat.circle(0, -11, 3).fill(0xf5cb76);
-  body.addChild(tail, cat); mayor.addChild(shadow, body); mayor.scale.set(1.3);
-  return { mayor, body, tail };
+  const leftPaw = new Graphics().roundRect(-4, -2, 7, 12, 3).fill(colors.paws);
+  const rightPaw = new Graphics().roundRect(-3, -2, 7, 12, 3).fill(colors.paws);
+  leftPaw.position.set(-12, -15); rightPaw.position.set(12, -15);
+  body.addChild(tail, cat, leftPaw, rightPaw); mayor.addChild(shadow, body); mayor.scale.set(1.3);
+  return { mayor, body, tail, leftPaw, rightPaw, shadow };
 }
