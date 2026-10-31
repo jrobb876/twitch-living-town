@@ -90,6 +90,7 @@ test("playback applies chat, preserves runtime across expansion, handles outages
 });
 test("playback celebrations return to autonomous behavior and do not replay after temporary outages", () => {
   const playback = new OverlayPlayback("town-a");
+  playback.receive(snapshot(), 500);
   const reaction: OverlayReaction = { id: "committed-event", kind: "subscriber", position: { x: 800, y: 630 }, expiresAt: 20000 };
   playback.receive({ ...snapshot(), reactions: [reaction] }, 1000);
   assert.equal(playback.tick(1100)?.id, reaction.id); assert.equal(playback.session!.runtime.mayor.behavior, "celebrating");
@@ -103,6 +104,29 @@ test("playback celebrations return to autonomous behavior and do not replay afte
   assert.equal(playback.session!.runtime.effects.length, 0);
   assert.equal(playback.session!.runtime.mayor.celebrationUntil, 0);
   playback.clear(); assert.equal(playback.tick(9400), null);
+});
+
+test("OBS refresh baselines old celebrations while parallel views and later events remain independent", () => {
+  const a = new OverlayPlayback("town-a"), b = new OverlayPlayback("town-a");
+  const old: OverlayReaction = { id: "old", kind: "gift", position: { x: 800, y: 630 }, expiresAt: 20000 };
+  for (const view of [a, b]) {
+    view.receive({ ...snapshot(), reactions: [old] }, 1000);
+    assert.equal(view.tick(1100), null);
+  }
+  const fresh = { ...old, id: "fresh" };
+  for (const view of [a, b]) {
+    view.receive({ ...snapshot(), reactions: [old, fresh] }, 1200);
+    assert.equal(view.tick(1300)?.id, "fresh");
+  }
+  const refreshed = new OverlayPlayback("town-a");
+  refreshed.receive({ ...snapshot(), reactions: [old, fresh] }, 1400);
+  assert.equal(refreshed.tick(1500), null);
+  assert.deepEqual(refreshed.session!.runtime.effects, []);
+  refreshed.unavailable();
+  const next = { ...old, id: "after-reconnect" };
+  refreshed.receive({ ...snapshot(), reactions: [fresh, next] }, 2000);
+  assert.equal(refreshed.tick(2100)?.id, next.id);
+  assert.equal(refreshed.session!.world.residents.length, 0, "visual playback never invents resident records");
 });
 test("verified EventSub chat reaches the overlay without dashboard polling or leaking chatter identities", async () => {
   const f = fixture(), socket = sockets(); f.twitch.validation.scopes = [CHAT_SCOPE]; const login = await f.login();

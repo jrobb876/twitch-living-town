@@ -3,7 +3,9 @@
 import dynamic from "next/dynamic";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { createWorld, createSession, giftCount, housesIn } from "@/lib/simulation/world";
+import { createWorld, createSession, giftCount, housesIn, synchronizeWorld } from "@/lib/simulation/world";
+import { neighborhoodLabel } from "@/lib/simulation/population";
+import { availablePlots } from "@/lib/simulation/expansion";
 import { processEvent, tickTown } from "@/lib/simulation/engine";
 import type { TownEvent } from "@/lib/simulation/types";
 import TownLoading from "./town-loading";
@@ -53,11 +55,11 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
     });
   }, []);
   const receiveSnapshot = useCallback((snapshot: ChatSnapshot | null) => {
-    if (!snapshot) { setLiveSession((current) => savedTown ? current?.world.id === savedTown.world.id ? { ...current, world: savedTown.world } : createSession(savedTown.world) : null); if (!savedTown) setMode("simulated"); return; }
+    if (!snapshot) { setLiveSession((current) => savedTown ? current ? synchronizeWorld(current, savedTown.world) : createSession(savedTown.world) : null); if (!savedTown) setMode("simulated"); return; }
     const saved = savedTown?.world.streamerTwitchUserId === snapshot.channel.twitchUserId ? savedTown.world : undefined;
     const target = saved?.id ?? snapshot.townId;
     setLiveSession((current) => {
-      const state = current?.world.id === target ? (saved ? { ...current, world: saved } : current)
+      const state = current?.world.id === target ? (saved ? synchronizeWorld(current, saved) : current)
         : createLiveView(snapshot, seed, townName, mayorName, current?.runtime.now ?? 0, saved);
       return projectLiveActivity(state, { ...snapshot, townId: target });
     });
@@ -88,7 +90,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
           <div><div className="eyebrow">A COMMUNITY IN BLOOM <span>✿</span></div><h1 id="town-title">Welcome to {world.name}<span>.</span></h1><p>A cozy little world. A place for everyone. One very small Mayor.</p></div>
         </section>
         <PersistentTown onTown={onTown} initialTown={savedTown} />
-        <SubscriberHousing onPresentation={receivePresentation} />
+        <SubscriberHousing key={savedTown?.world.id ?? "no-saved-town"} onPresentation={receivePresentation} />
         <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} showSourceControls={enableSimulator} />
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">
@@ -111,7 +113,8 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
               <div className="stats-row"><span className="stat-icon">⌂</span><div><strong>{housesIn(world).length}</strong><span>Cozy homes</span></div><span className="stat-note">{world.residents.filter((r) => r.houseId).length} subscriber owned</span></div>
               <div className="neighborhood-detail"><span>Residents / subscribers</span><strong>{world.residents.length} / {world.residents.filter((r) => r.isSubscriber).length}</strong></div>
               <div className="neighborhood-detail"><span>Community gifts</span><strong>{giftCount(world)}</strong></div>
-              <div className="neighborhood-detail"><span>New neighborhoods / total plots</span><strong>{world.districts.filter((d) => d.generation).length} / {world.plots.length}</strong></div>
+              <div className="neighborhood-detail"><strong>{neighborhoodLabel(world)}</strong><span>{world.plots.length} total plots</span></div>
+              <div className="neighborhood-detail"><span>Available housing</span><strong>{availablePlots(world)}</strong></div>
               <div className="neighborhood-detail"><span>Chat activity</span><strong>{runtime.activity.level} · {runtime.activity.score}/100</strong></div>
               <meter className="activity-meter" aria-label="Community chat activity" min={0} max={100} value={runtime.activity.score} />
               {world.residents.some((r) => r.housingStatus === "waiting") && <p className="housing-note">All plots allocated. {world.residents.filter((r) => r.housingStatus === "waiting").length} subscriber(s) awaiting expansion.</p>}

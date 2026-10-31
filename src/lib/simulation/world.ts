@@ -1,6 +1,7 @@
 import { generateTown, seededRandom } from "../town/generate";
 import type { House } from "../town/types";
 import type { HouseAppearance, HouseBuilding, TownSession, TownWorld } from "./types";
+import { reconcileResidents } from "./residents";
 
 export function appearanceFromHouse(house: House): HouseAppearance {
   return { roofColor: house.roof, wallColor: house.wall, flowerColor: house.flowers,
@@ -39,14 +40,20 @@ export function createWorld(input: { id: string; streamerTwitchUserId: string; s
 
 export function createSession(world: TownWorld, now = 0): TownSession {
   const node = world.layout.navigation.find((node) => node.id === "1-2")!;
-  const hall = world.layout.navigation.find((node) => node.id === "hall")!;
   return { world, runtime: {
     now, activity: { samples: [], score: 0, level: "peaceful" }, effects: [],
-    residentActors: world.residents.slice(0, 24).map((resident, index) => ({ residentId: resident.id,
-      actor: { position: { x: hall.x, y: hall.y }, nodeId: hall.id, targetNodeId: null, previousNodeId: null, restUntil: now, steps: index + 1 } })),
+    residentActors: reconcileResidents(world, now),
     mayor: { position: { x: node.x, y: node.y }, nodeId: node.id, targetNodeId: null, previousNodeId: null,
       restUntil: now + 1500, steps: 0, behavior: "idle", tasks: [], celebrationUntil: 0 },
   } };
+}
+
+/** Install a confirmed world while retaining animation state only within the same town. */
+export function synchronizeWorld(state: TownSession, world: TownWorld): TownSession {
+  if (state.world === world) return state;
+  if (state.world.id !== world.id || state.world.streamerTwitchUserId !== world.streamerTwitchUserId) return createSession(world, state.runtime.now);
+  const residentActors = reconcileResidents(world, state.runtime.now, state.runtime.residentActors, state.world);
+  return { world, runtime: residentActors === state.runtime.residentActors ? state.runtime : { ...state.runtime, residentActors } };
 }
 
 export function newHouseAppearance(seed: number, plotIndex: number): HouseAppearance {

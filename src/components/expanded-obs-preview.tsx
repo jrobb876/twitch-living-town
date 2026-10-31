@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { createExpandedPreview, previewCounts, previewInput, PREVIEW_RESET_PATH } from "@/lib/overlay/preview";
 import { startPreview } from "@/lib/overlay/preview-runtime";
 import { defaultDisplay, type DisplaySettings } from "@/lib/overlay/model";
+import { neighborhoodLabel } from "@/lib/simulation/population";
 
 function Scene({ count, seed, display, controls }: { count: number; seed: number; display: DisplaySettings; controls: boolean }) {
   const host = useRef<HTMLDivElement>(null), controller = useRef<ReturnType<typeof startPreview> | null>(null);
@@ -19,7 +20,7 @@ function Scene({ count, seed, display, controls }: { count: number; seed: number
     });
     controller.current = owner;
     let active = true;
-    void owner.ready.then(() => { if (active) setStatus(`${count} simulated houses · ${world.districts.length} districts · ${world.plots.length} plots · seed ${seed}`); })
+    void owner.ready.then(() => { if (active) setStatus(`${count} simulated houses · ${neighborhoodLabel(world)} · ${world.plots.length} plots · seed ${seed}`); })
       .catch(() => { if (active) setStatus("Preview could not open. Reload with WebGL/hardware acceleration enabled."); });
     return () => { active = false; owner.destroy(); controller.current = null; };
   }, [count, seed]);

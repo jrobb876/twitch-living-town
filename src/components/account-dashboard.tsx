@@ -4,6 +4,7 @@ import { mayorLook, mayorPalettes, personalities } from "@/lib/mayor/presets";
 import { townVisitPath } from "@/lib/houses/links";
 import MayorPortrait from "./mayor-portrait";
 import PropertyCards from "./property-cards";
+import { neighborhoodLabel } from "@/lib/simulation/population";
 
 export default function AccountDashboard({ data }: { data: DashboardData }) {
   const { profile, town, houses, townUnavailable, housesUnavailable } = data;
@@ -14,7 +15,7 @@ export default function AccountDashboard({ data }: { data: DashboardData }) {
       {townUnavailable ? <p role="alert">Your town could not be loaded. <a href="/dashboard">Retry dashboard</a>. Nothing has been created or replaced.</p>
         : town && mayor ? <><div className="welcome-mayor"><MayorPortrait name={mayor.name} preset={mayor.appearance?.preset} /><div><h3>{town.world.name}</h3><p>Mayor {mayor.name} · {mayorPalettes[mayorLook(mayor.appearance?.preset)].label}</p>
           <p>{mayor.personality?.preset ? personalities[mayor.personality.preset].label : "Your saved personality"}{mayor.personality && ` · Curiosity ${Math.round(mayor.personality.curiosity * 100)}% · Energy ${Math.round(mayor.personality.energy * 100)}%`}</p></div></div>
-          <p>{town.world.residents.length} residents · {town.world.residents.filter((r) => r.houseId && r.subscription?.active).length} active subscriber homes · {town.world.plots.length} plots</p>
+          <p>{town.world.residents.length} residents · {town.world.residents.filter((r) => r.houseId && r.subscription?.active).length} active subscriber homes · {neighborhoodLabel(town.world)} · {town.world.plots.length} plots</p>
           <div className="workspace-actions"><Link className="primary-button" href="/town-overview">Open Town Overview</Link><Link className="account-button" href="/dashboard/town">Manage My Town</Link><Link className="account-button" href={townVisitPath(town.world.id)}>Visit Town</Link></div>
           <p className="dashboard-utilities"><Link href="/dashboard/town#obs">OBS settings</Link> · <Link href="/account">Account details</Link></p></>
           : <><h3>A place for your community</h3><p>You do not have a town yet. Create one whenever you are ready; your houses in other communities are already part of this account.</p><Link className="primary-button" href="/onboarding">Create My Town</Link></>}

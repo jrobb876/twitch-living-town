@@ -1,5 +1,20 @@
 # Technical decisions
 
+## 2026-10-31 — Adaptive resident density (Prompt 017C)
+
+1. Replace the global oldest-24 actor pool with one actor per recorded resident up to 256. Above that bound select round-robin across populated technical districts. Keep pool identity independent of camera movement; hydrate near homes/within populated districts and preserve existing actor state at synchronization. This budget covers all 0–200 scenarios without claiming a hardware FPS guarantee.
+2. Keep bounded model movement running offscreen; skip resident drawing/interpolation outside screen-space overscan. Use 96px entry/160px exit margins plus a short fade-in rather than destroying/reallocating graphics on camera movement. Spotlight without a town background suppresses all resident drawing. Existing renderer/model timers, scenery and Mayor animations remain.
+3. Production OBS previously received four ambient actors, not the recorded 24-actor roster. Add a separate authorized visual roster, bounded to 256, with HMAC identities using a private random per-process key. Never use the browser-visible OBS token as the HMAC key. Keep sanitized world residents empty. Rotate epoch on restart and rehydrate without arrivals; no durable state, new secret configuration or public visitor exposure.
+4. Validate model counts, identity/distribution/privacy, resource bounds and camera math with synthetic tests. Browser/OBS/WebGL profiling remains manual at 1920×1080. Sampling above 256, temporary newcomer clustering and independent view clocks are documented tradeoffs, not population/ownership changes.
+
+## 2026-10-31 — Housing/population consistency (Prompt 017B)
+
+1. Use existing unowned cottages before constructing on vacant plots in the shared event processor. Keep existing reserve threshold, district recipe, property identities/customization, active entitlement checks and transactional RPC boundaries. Existing schema supports this; no migration or retrospective relocation.
+2. User-facing Neighborhoods = 1 + generated expansions in the confirmed world. The initial seven residential districts are technical subdivisions of one settlement, not seven user-facing neighborhoods. Share this presentation helper across owner, visitor and demo counters; do not persist another neighborhood entity.
+3. Ephemeral celebrations are per-view live delivery. Baseline the first successful event buffer, then admit unexpired unseen IDs. Refresh therefore cannot replay buffered history, and parallel views do not consume each other's events. The tradeoff is skipping events before initial synchronization; outages/restarts can lose visual reactions, but not committed state. No persisted cursor, global consumed flag or credential-storage change.
+4. Reconcile at most 24 unique resident actors on world changes, by stable resident IDs within the same town. Hydration uses home/path placement without first-arrival effects; new records in an existing view may enter at Town Hall. Preserve matching actor/graphics resources and dispose stale graphics. Keep private resident identities out of public/OBS projections and document scenery actors separately.
+5. Keep Prompt 017A as a historical audit with an explicit superseding notice. Update its regression expectations to the new required allocation policy while preserving gift, duplicate-event, identity and expansion coverage. No new event integrations, scopes, animations or entitlement policy.
+
 ## 2026-10-30 — Unified dashboard (Prompt 015)
 
 1. Preserve the existing town-management component at `/dashboard/town`; use `/dashboard` for an authenticated hub with both roles visible. Server-only reads authenticate first and distinguish storage failures from empty town/house states.

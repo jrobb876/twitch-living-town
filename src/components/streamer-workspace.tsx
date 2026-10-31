@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { StoredTown } from "@/lib/persistence/types";
 import { createWorld } from "@/lib/simulation/world";
+import { neighborhoodLabel } from "@/lib/simulation/population";
 import { mayorLook, mayorLooks, mayorPalettes, personalities, personalityFor, personalityNames, type MayorLook, type PersonalityName } from "@/lib/mayor/presets";
 
 import ChatConnection from "./chat-connection";
@@ -98,8 +99,8 @@ function Dashboard({ initialTown, csrfToken }: { initialTown: StoredTown; csrfTo
     {notice && <p role="status" className="account-notice">{notice}</p>}
     <section id="settings" className="management-section"><h2>Town & Mayor</h2><p>Make this corner of the world your own.</p><div className="dashboard-grid"><TownPreview key={world.id} world={world} /><div className="workspace-card"><TownSettings key={`${world.id}:${editor}`} town={town} csrfToken={csrfToken} onSaved={(saved) => { request.current?.abort(); setTown(saved); setEditor((n) => n + 1); setNotice("Your town and Mayor settings are saved."); }} onReload={() => { setNotice(""); void refresh(true); }} /></div></div></section>
     <section id="community" className="workspace-card management-section"><h2>Community</h2>
-      <div className="dashboard-stats"><div><strong>{world.residents.length}</strong><span>Residents</span></div><div><strong>{world.residents.filter((r) => r.subscription?.active && r.houseId).length}</strong><span>Active subscriber homes</span></div><div><strong>{world.plots.filter((p) => !p.buildingId).length} / {world.plots.length}</strong><span>Free / total plots</span></div></div>
-      <p>{world.districts.filter((d) => d.kind === "residential").length} residential neighborhoods · {world.residents.filter((r) => r.housingStatus === "waiting").length} neighbors waiting for homes.</p><button className="account-button" onClick={() => void refresh()}>Refresh town status</button>
+      <div className="dashboard-stats"><div><strong>{world.residents.length}</strong><span>Residents</span></div><div><strong>{world.residents.filter((r) => r.subscription?.active && r.houseId).length}</strong><span>Active subscriber homes</span></div><div><strong>{world.plots.filter((p) => !p.buildingId).length} / {world.plots.length}</strong><span>Vacant / total plots</span></div></div>
+      <p>{neighborhoodLabel(world)} · {world.residents.filter((r) => r.housingStatus === "waiting").length} neighbors waiting for homes.</p><button className="account-button" onClick={() => void refresh()}>Refresh town status</button>
       <p>These connections are optional. If permission is missing, use the authorization button below. If your Twitch session has expired, <Link href="/account">reconnect your account</Link>, then return here.</p>
       <ChatConnection mode="live" onMode={noMode} onSnapshot={noSnapshot} hasSavedTown showSourceControls={false} />
       <SubscriberHousing onPresentation={noPresentation} />

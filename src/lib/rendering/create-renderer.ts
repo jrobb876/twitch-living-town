@@ -4,6 +4,7 @@ import { overviewOf } from "./overview";
 import { drawMayor, drawTown } from "./draw-town";
 import { clampCameraPosition, fitCamera, coverCamera, worldBounds, followCamera, smoothCamera } from "./camera";
 import { rendererViewport } from "./viewport";
+import { residentVisible } from "./resident-visibility";
 import { spotlightComposition, type DisplaySettings } from "../overlay/model";
 
 export type TownRenderer = {
@@ -91,12 +92,15 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
         scene.syncHouses(town.houses); scene.syncLots(town.expansion);
       }
       if (changed || next.world.buildings !== snapshot.world.buildings) cull();
+      const visibleResidents = new Set(next.runtime.residentActors.map((actor) => actor.residentId));
+      for (const [id, visual] of residents) if (!visibleResidents.has(id)) { visual.destroy(); residents.delete(id); }
       for (const { residentId, actor } of next.runtime.residentActors) {
         if (!residents.has(residentId)) {
           const person = new Graphics().ellipse(0, 2, 7, 3).fill({ color: 0x48664c, alpha: 0.15 })
             .roundRect(-5, -12, 10, 13, 4).fill([0xa286ac, 0x729baf, 0xc89678][residents.size % 3])
             .circle(0, -17, 5).fill(0xf3d6b0);
           person.position.set(actor.position.x, actor.position.y); actors.addChild(person); residents.set(residentId, person);
+          person.visible = false; person.alpha = 0;
         }
       }
       for (const [id, visual] of effects) if (!next.runtime.effects.some((effect) => effect.id === id)) { visual.destroy({ children: true }); effects.delete(id); }
@@ -140,8 +144,14 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
           world.scale.set(camera.scale); world.position.set(position.x, position.y); cull();
         }
       }
+      const viewport = { x: -world.x / world.scale.x, y: -world.y / world.scale.y,
+        width: app.screen.width / world.scale.x, height: app.screen.height / world.scale.y };
       for (const { residentId, actor } of snapshot.runtime.residentActors) {
         const visual = residents.get(residentId)!;
+        const visible = residentVisible(actor.position, viewport, world.scale.x, visual.visible, world.visible);
+        if (!visible) { visual.visible = false; visual.alpha = 0; continue; }
+        if (!visual.visible) { visual.position.set(actor.position.x, actor.position.y); visual.visible = true; }
+        visual.alpha = reducedMotion ? 1 : Math.min(1, visual.alpha + dt * 8);
         visual.x += (actor.position.x - visual.x) * blend;
         visual.y += (actor.position.y - visual.y) * blend;
         visual.zIndex = visual.y;

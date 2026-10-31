@@ -13,6 +13,7 @@ import { fixture } from "../auth/test-fixtures";
 import { cookieNames } from "../auth/config";
 import { createWorld, housesIn, createSession } from "../simulation/world";
 import { processEvent } from "../simulation/engine";
+import { neighborhoodCount } from "../simulation/population";
 import { createLiveView, projectLiveActivity } from "../chat/projection";
 import { chatMessage, NOW } from "../chat/test-fixtures";
 import { LiveChatFeed } from "../chat/feed";
@@ -90,6 +91,9 @@ test("OBS preferences and hashed grants persist separately; rotate/revoke isolat
   for (let i = 0; i < 11; i++) await service.applyVerifiedEvent({ source: "twitch_verified", event: event(town.world.id) });
   const expanded = await overlay.read(town.world.id, grant.token!, full.revision);
   assert.equal(expanded.world!.plots.length, 26); assert.deepEqual(expanded.settings, settings);
+  assert.equal(expanded.population.actors.length, 11);
+  assert.deepEqual((await overlay.read(town.world.id, grant.token!, expanded.revision)).population, expanded.population);
+  assert.deepEqual(expanded.world!.residents, []);
   const rotated = await overlay.manage(owner, { action: "rotate", townId: town.world.id });
   await assert.rejects(overlay.read(town.world.id, grant.token!, expanded.revision), code("forbidden"));
   assert.equal((await overlay.read(town.world.id, rotated.token!, expanded.revision)).world, undefined);
@@ -121,7 +125,8 @@ test("OBS HTTP requires owner session and CSRF for management; bearer grants onl
   const success = await handlers.read(read(grant.token), context); assert.equal(success.status, 200);
   assert.match(success.headers.get("cache-control")!, /no-store/); assert.equal(success.headers.get("vary"), "Authorization");
   const payload = JSON.stringify(await success.json());
-  for (const privateValue of [grant.token, login.id, '"csrfToken"', owner.twitchUserId, "test-access", "test-refresh"]) assert.ok(!payload.includes(privateValue));
+  // Match the identity value, not coincidental digits inside an opaque random alias/epoch.
+  for (const privateValue of [grant.token, login.id, '"csrfToken"', JSON.stringify(owner.twitchUserId), "test-access", "test-refresh"]) assert.ok(!payload.includes(privateValue));
   await handlers.manage(request({ ...body, action: "revoke" })); assert.equal((await handlers.read(read(grant.token), context)).status, 403);
   const unavailable = createOverlayHandlers(() => f.service, () => new OverlayService(async () => { throw new Error("private network detail"); }, service, offlineActivity, () => []), false);
   const failure = await unavailable.read(read(grant.token), context); assert.equal(failure.status, 503);
@@ -294,6 +299,7 @@ test("a mid-projection database failure rolls back growth, preserves membership 
     assert.equal(saved.town.world.residents.at(-1)?.housingStatus, "waiting");
     assert.equal(saved.town.world.residents.at(-1)?.isSubscriber, true);
     assert.deepEqual(saved.town.world.layout, before.world.layout);
+    assert.equal(neighborhoodCount(saved.town.world), 1, "rolled-back growth is not a completed neighborhood");
     assert.deepEqual(saved.town.world.buildings, before.world.buildings);
     assert.equal(saved.town.revision, before.revision + 1, "only the fallback transaction commits");
     assert.equal((await db.query<{ count: number }>("select count(*)::int as count from public.living_town_districts where town_id=$1", [town.world.id])).rows[0].count, before.world.districts.length);
@@ -301,6 +307,7 @@ test("a mid-projection database failure rolls back growth, preserves membership 
   assert.equal((await service.applyVerifiedEvent({ source: "twitch_verified", event: pending })).status, "duplicate");
   const recovered = await service.applyVerifiedEvent({ source: "twitch_verified", event: { ...pending, id: randomUUID() } });
   assert.equal(recovered.expansionDeferred, false); assert.equal(recovered.town.world.plots.length, 26);
+  assert.equal(neighborhoodCount(recovered.town.world), 2);
   assert.equal(recovered.town.world.residents.length, 15); assert.equal(recovered.town.world.residents.at(-1)?.housingStatus, "housed");
   assert.equal((await db.query<{ count: number }>("select count(*)::int as count from public.living_town_processed_events where town_id=$1", [town.world.id])).rows[0].count, 16);
 });
@@ -376,7 +383,9 @@ test("duplicate verified events and simultaneous different subscribers allocate 
   assert.equal(owned.length, 2); assert.equal(new Set(owned.map((house) => house.plotId)).size, 2);
   assert.equal(loaded.world.residents.length, 2);
   assert.deepEqual(loaded.world.layout, town.world.layout);
-  assert.deepEqual(housesIn(loaded.world).slice(0, 12), housesIn(town.world));
+  assert.equal(housesIn(loaded.world).length, 12);
+  assert.deepEqual(housesIn(loaded.world).map(({ ownerTwitchUserId, property, ...house }) => ({ ...house, customization: property?.customization ?? {}, owned: !!ownerTwitchUserId })),
+    housesIn(town.world).map(({ ownerTwitchUserId, property, ...house }, i) => ({ ...house, customization: property?.customization ?? {}, owned: i < 2 || !!ownerTwitchUserId })));
   assert.equal((await db.query<{ count: number }>("select count(*)::int as count from public.living_town_processed_events where town_id=$1", [town.world.id])).rows[0].count, 2);
   const replay = await new TownPersistenceService(new SupabaseTownRepository(rpc)).applyVerifiedEvent({ source: "twitch_verified", event: first });
   assert.equal(replay.status, "duplicate"); assert.equal(replay.town.revision, loaded.revision);
@@ -428,6 +437,36 @@ test("an unclaimed starter house retains saved customization when a verified sub
   const saved = housesIn((await service.mine(owner))!.world).find((house) => house.id === home.id)!;
   assert.ok(saved.ownerTwitchUserId); assert.equal(saved.property?.status, "verified_subscriber");
   assert.equal(saved.property?.customization.sign, "Welcome"); assert.deepEqual(saved.position, home.position);
+});
+
+test("persistent allocation fills twelve original cottages before construction and never takes a legacy home", async () => {
+  const { owner, town } = await create(), cottages = housesIn(town.world);
+  const first = event(town.world.id);
+  let loaded = town;
+  for (let i = 0; i < 12; i++) {
+    const result = await service.applyVerifiedEvent({ source: "twitch_verified", event: i === 0 ? first : event(town.world.id) });
+    loaded = result.town;
+    assert.equal(housesIn(loaded.world).length, 12);
+    assert.equal(loaded.world.residents.at(-1)!.houseId, cottages[i].id);
+  }
+  assert.equal(neighborhoodCount(loaded.world), 2);
+  loaded = await service.updateHouse(owner, town.world.id, cottages[0].id, loaded.revision, { customization: { sign: "Keep forever" } });
+  const resident = loaded.world.residents[0];
+  loaded = (await service.applyVerifiedEvent({ source: "twitch_verified", event: { id: randomUUID(), townId: town.world.id, occurredAt: NOW + 1,
+    type: "SUBSCRIPTION_ENDED", user: { twitchUserId: resident.twitchUserId, displayName: resident.displayName },
+    subscription: { active: false, tier: "1000", isGift: false, source: "eventsub", verifiedAt: NOW + 1 } } })).town;
+  const retained = structuredClone(housesIn(loaded.world));
+  const next = event(town.world.id);
+  const result = await service.applyVerifiedEvent({ source: "twitch_verified", event: next });
+  assert.equal(result.status, "saved");
+  assert.equal(housesIn(result.town.world).length, 13);
+  assert.deepEqual(housesIn(result.town.world).slice(0, 12), retained);
+  assert.equal(retained[0].property?.status, "legacy");
+  assert.equal(retained[0].property?.customization.sign, "Keep forever");
+  assert.equal(housesIn(result.town.world).at(-1)!.plotId, "plot-expansion-1");
+  const duplicate = await service.applyVerifiedEvent({ source: "twitch_verified", event: next });
+  assert.equal(duplicate.status, "duplicate"); assert.equal(duplicate.presentation, null);
+  assert.deepEqual((await service.mine(owner))!.world, result.town.world);
 });
 
 test("SQL rejects relocation and duplicate plot allocation; entire event transaction rolls back", async () => {
@@ -796,6 +835,7 @@ test("dashboard covers neither role, streamer only, subscriber only and both wit
   const streamer = await as(f.second.owner);
   assert.equal(streamer.town?.world.id, f.second.town.world.id); assert.deepEqual(streamer.houses, []);
   const streamerHtml = renderToStaticMarkup(createElement(AccountDashboard, { data: streamer }));
+  assert.match(streamerHtml, /1 Neighborhood/);
   assert.match(streamerHtml, /Manage My Town/); assert.match(streamerHtml, /dashboard\/town#obs/);
   const subscriber = await as(f.member);
   assert.equal(subscriber.town, null); assert.equal(subscriber.houses.length, 2);

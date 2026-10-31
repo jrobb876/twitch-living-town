@@ -1,9 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import type { HousingStatus, HousingPresentation } from "@/lib/subscribers/types";
+import { PresentationCursor } from "@/lib/simulation/presentation-cursor";
 export default function SubscriberHousing({ onPresentation }: { onPresentation: (value: HousingPresentation) => void }) {
   const [status, setStatus] = useState<HousingStatus | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
-  const lastRevision = useRef<number | null>(null), shown = useRef(new Set<string>());
+  const lastRevision = useRef<number | null>(null), cursor = useRef(new PresentationCursor());
   useEffect(() => {
     const controller = new AbortController(); let inFlight = false;
     async function poll() {
@@ -14,10 +15,7 @@ export default function SubscriberHousing({ onPresentation }: { onPresentation: 
         if (!response.ok) { setStatus(null); setError(data.message ?? "Subscriber housing is unavailable."); return; }
         setStatus(data); setError("");
         if (data.revision !== lastRevision.current) { lastRevision.current = data.revision; window.dispatchEvent(new Event("living-town:reload")); }
-        for (const presentation of data.presentations as HousingPresentation[]) if (!shown.current.has(presentation.id)) {
-          shown.current.add(presentation.id); onPresentation(presentation);
-          if (shown.current.size > 128) shown.current.delete(shown.current.values().next().value!);
-        }
+        for (const presentation of cursor.current.take(data.presentations as HousingPresentation[], Date.now())) onPresentation(presentation);
       } catch { if (!controller.signal.aborted) setError("Subscriber housing status is unavailable. Saved houses are retained."); }
       finally { inFlight = false; }
     }
@@ -39,7 +37,7 @@ export default function SubscriberHousing({ onPresentation }: { onPresentation: 
     <div className="chat-connection-title"><strong>Subscriber Housing</strong><span className="chat-mode">VERIFIED TWITCH DATA</span></div>
     {status && <>
       <p>Subscription permission: <strong>{status.authorized ? "authorized" : "not granted"}</strong> · Live events: {status.liveReady ? "ready (4 subscriptions)" : status.live}</p>
-      <p>{status.verifiedHouses} verified houses · {status.active} active · {status.legacy} legacy · {status.availablePlots} available plots · {status.waitlisted} waitlisted</p>
+      <p>{status.verifiedHouses} subscriber-owned houses · {status.active} active · {status.legacy} legacy · {status.availablePlots} available housing slots · {status.waitlisted} waitlisted</p>
       <p role="status">Last sync: {status.lastSync ? `${status.lastSync.status} · ${new Date(status.lastSync.finishedAt ?? status.lastSync.startedAt).toLocaleString()}` : "never"}</p>
       {status.lastSync && <p>Imported {status.lastSync.imported} · Updated {status.lastSync.updated} · Unchanged {status.lastSync.unchanged} · Waitlisted {status.lastSync.waitlisted} · Failed records {status.lastSync.failed}{status.lastSync.error ? ` · ${status.lastSync.error}` : ""}</p>}
       <div className="chat-actions">

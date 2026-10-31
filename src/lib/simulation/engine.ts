@@ -4,6 +4,7 @@ import { housesIn, newHouseAppearance } from "./world";
 import type { EventOutcome, Resident, TownEffect, TownEvent, TownSession, TwitchIdentity } from "./types";
 import { addDistrict, availablePlots } from "./expansion";
 import { PLANNING } from "../town/planning";
+import { MAX_RESIDENT_ACTORS, reconcileResidents } from "./residents";
 
 /** Advance transient state using an injected monotonic millisecond clock. */
 export function tickTown(state: TownSession, now: number): TownSession {
@@ -84,7 +85,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
         subscriptionMonths: 0, houseId: null, housingStatus: "none" };
       world.residents.push(record);
       const node = world.layout.navigation.find((node) => node.id === "hall")!;
-      if (runtime.residentActors.length < 24) runtime.residentActors.push({ residentId: record.id,
+      if (runtime.residentActors.length < MAX_RESIDENT_ACTORS) runtime.residentActors.push({ residentId: record.id,
         actor: { position: { x: node.x, y: node.y }, nodeId: node.id, targetNodeId: null, previousNodeId: null, restUntil: now, steps: world.residents.length } });
       outcome.residentIds.push(record.id);
     } else record.displayName = user.displayName;
@@ -102,8 +103,8 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     }
     reserve(1);
     const unclaimed = new Set(housesIn(world).filter((h) => h.ownerTwitchUserId === null).map((h) => h.id));
-    const plot = world.plots.find((item) => !item.buildingId && item.districtId === "expansion")
-      ?? world.plots.find((item) => item.buildingId && unclaimed.has(item.buildingId))
+    const plot = world.plots.find((item) => item.buildingId && unclaimed.has(item.buildingId))
+      ?? world.plots.find((item) => !item.buildingId && item.districtId === "expansion")
       ?? world.plots.find((item) => !item.buildingId);
     if (!plot) { record.housingStatus = "waiting"; return record; }
     let house = housesIn(world).find((item) => item.id === plot.buildingId);
@@ -188,6 +189,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
   const waiting = world.residents.filter((record) => record.housingStatus === "waiting").length;
   if (waiting && event.type === "GIFT_SUBSCRIPTION") outcome.message += ` ${waiting} subscriber(s) await more housing.`;
   world.processedEvents.push(outcome);
+  if (outcome.residentIds.length || outcome.houseIds.length) runtime.residentActors = reconcileResidents(world, now, runtime.residentActors, state.world);
   // Preserve stable geometry references on chat/follower/raid events so observers
   // need not rebuild the overview or discard camera state.
   if (!expanded) world.layout = state.world.layout;

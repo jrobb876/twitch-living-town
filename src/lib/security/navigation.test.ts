@@ -9,6 +9,8 @@ import PublicHome from "../../components/public-home";
 import TownLoading from "../../components/town-loading";
 import StreamerWorkspace from "../../components/streamer-workspace";
 import TownExperience from "../../components/town-experience";
+import EventSimulator from "../../components/event-simulator";
+import { addDistrict } from "../simulation/expansion";
 import { currentSection, primaryNavigation, standalonePresentation } from "./navigation";
 import { publicSampleTown } from "../simulation/public-sample";
 import { createSession, housesIn } from "../simulation/world";
@@ -18,6 +20,25 @@ import { signOutToHome } from "../auth/logout-client";
 const signedOut: AccountState = { user: null, csrfToken: null };
 const signedIn: AccountState = { user: { twitchUserId: "12345", displayName: "Test neighbor", login: "neighbor", profileImageUrl: null }, csrfToken: "synthetic-csrf" };
 const render = (child: ReturnType<typeof createElement>, account = signedOut) => renderToStaticMarkup(createElement(AccountProvider, { initialAccount: account }, child));
+
+test("Overview, management and simulator display one conceptual neighborhood then two with correct housing labels", () => {
+  const initial = publicSampleTown();
+  for (const [index, world] of [initial, addDistrict(initial)!].entries()) {
+    const initialTown = { world, revision: index + 1, updatedAt: "2026-10-31" };
+    const label = index ? "2 Neighborhoods" : "1 Neighborhood";
+    const overview = renderToStaticMarkup(createElement(TownExperience, { initialTown }));
+    const management = renderToStaticMarkup(createElement(StreamerWorkspace, { initialTown, csrfToken: "synthetic" }));
+    const simulator = renderToStaticMarkup(createElement(EventSimulator, { state: createSession(world), onEvent() {}, onReset() {} }));
+    for (const html of [overview, management, simulator]) {
+      assert.ok(html.includes(label));
+      assert.ok(!html.includes("New neighborhoods"));
+      assert.ok(!html.includes("residential neighborhoods"));
+    }
+    assert.match(overview, /Available housing/);
+    assert.match(management, /Vacant \/ total plots/);
+    assert.match(simulator, /available housing slots/);
+  }
+});
 
 test("public home remains available to both identities and changes only the primary account action", () => {
   const anonymous = render(createElement(PublicHome));

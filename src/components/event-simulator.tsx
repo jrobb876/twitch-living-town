@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { processEvent } from "@/lib/simulation/engine";
 import { availablePlots } from "@/lib/simulation/expansion";
+import { neighborhoodLabel } from "@/lib/simulation/population";
 import type { EventOutcome, TownEvent, TownSession, TwitchIdentity } from "@/lib/simulation/types";
 
 type Props = { state: TownSession; onEvent: (event: TownEvent) => void; onReset: () => void };
@@ -60,7 +61,7 @@ export default function EventSimulator({ state, onEvent, onReset }: Props) {
       <button disabled={!lastEvent} onClick={() => lastEvent && send(lastEvent)}>Retry last event ID</button>
       <button onClick={onReset}>Reset demo town</button>
     </div>
-    <p>Neighborhood expansion · {state.world.plots.length} total plots · {availablePlots(state.world)} available. Use Fit town (0) after expanding.</p>
+    <p>{neighborhoodLabel(state.world)} · {state.world.plots.length} total plots · {availablePlots(state.world)} available housing slots. Use Fit town (0) after expanding.</p>
     <div className="simulator-buttons" aria-label="Development-only neighborhood expansion">
       <button onClick={() => addSubscribers(availablePlots(state.world) || 1)}>Fill existing capacity</button>
       <button onClick={() => addSubscribers(12)}>Add 12 demo subscribers</button>

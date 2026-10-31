@@ -49,7 +49,7 @@ test("several hundred homes preserve property customization, connectivity, uniqu
   const kept = structuredClone(first), start = performance.now();
   for (let i = 2; i <= 360; i++) state = subscribe(state, i);
   t.diagnostic(`360 logical subscribers: ${Math.round(performance.now() - start)} ms, ${JSON.stringify(state.world).length} JSON characters (includes demo ledger).`);
-  assert.equal(housesIn(state.world).length, 360); assert.equal(state.runtime.residentActors.length, 24);
+  assert.equal(housesIn(state.world).length, 360); assert.equal(state.runtime.residentActors.length, 256);
   assert.equal(new Set(housesIn(state.world).map((h) => h.plotId)).size, 360);
   assert.deepEqual(housesIn(state.world).find((h) => h.id === kept.id), kept);
   assert.deepEqual(housesIn(state.world).slice(0, 12).map((h) => h.position), housesIn(initial).map((h) => h.position));
@@ -59,7 +59,7 @@ test("several hundred homes preserve property customization, connectivity, uniqu
   }
   const persisted = validateWorld({ ...state.world, processedEvents: [] });
   assert.deepEqual(validateWorld(JSON.parse(JSON.stringify(persisted))), persisted);
-  const reloaded = createSession(persisted); assert.equal(reloaded.runtime.residentActors.length, 24);
+  const reloaded = createSession(persisted); assert.equal(reloaded.runtime.residentActors.length, 256);
   assert.doesNotThrow(() => tickTown(reloaded, 2000));
   assert.equal(initial.plots.length, 14, "isolated demo and other towns remain untouched");
 });

@@ -29,12 +29,13 @@ test("world model preserves seeded overview houses and JSON round-trips", () => 
   assert.equal(a.world.districts.filter((d) => d.kind === "residential").length, 7);
 });
 
-test("subscriber gets a reachable expansion plot without relocating any existing home", () => {
+test("subscriber gets a reachable existing cottage without relocating any home", () => {
   const before = session();
   const serialized = JSON.stringify(before);
   const after = apply(before, { type: "NEW_SUBSCRIBER", user: user("alice") });
-  assert.equal(housesIn(after.world).length, 13);
-  assert.deepEqual(housesIn(after.world).slice(0, 12), housesIn(before.world));
+  assert.equal(housesIn(after.world).length, 12);
+  assert.deepEqual(housesIn(after.world).slice(1), housesIn(before.world).slice(1));
+  assert.deepEqual(housesIn(after.world)[0], { ...housesIn(before.world)[0], ownerTwitchUserId: "alice" });
   const home = housesIn(after.world).find((h) => h.ownerTwitchUserId === "alice")!;
   const plot = after.world.plots.find((p) => p.id === home.plotId)!;
   assert.equal(home.id, after.world.residents[0].houseId);
@@ -54,7 +55,7 @@ test("subscription retries by ID and by user preserve one resident, house and ef
   assert.equal(retry.outcome.status, "duplicate");
   const semanticRetry = apply(first, { type: "NEW_SUBSCRIBER", user: user("alice") }, "different-id");
   assert.equal(semanticRetry.world.residents.length, 1);
-  assert.equal(housesIn(semanticRetry.world).length, 13);
+  assert.equal(housesIn(semanticRetry.world).length, 12);
   assert.equal(semanticRetry.runtime.effects.length, first.runtime.effects.length);
 });
 
@@ -78,8 +79,8 @@ test("resubscriptions retain house/customization and use cumulative months", () 
   const third = apply(second, { type: "RESUBSCRIPTION", user: user("alice"), cumulativeMonths: 3 });
   assert.equal(third.world.residents[0].houseId, house.id);
   assert.equal(third.world.residents[0].subscriptionMonths, 6);
-  assert.equal(housesIn(third.world).length, 13);
-  assert.deepEqual(housesIn(third.world).at(-1)!.appearance, house.appearance);
+  assert.equal(housesIn(third.world).length, 12);
+  assert.deepEqual(housesIn(third.world).find((h) => h.id === house.id)!.appearance, house.appearance);
   assert.ok(third.runtime.effects.some((effect) => effect.kind === "welcome-back"));
 });
 
@@ -93,7 +94,7 @@ test("aggregate gifts do not invent recipients; individual deliveries reconcile 
   state = apply(state, { type: "GIFT_SUBSCRIPTION", ...gift, total: 2, recipients: [user("a"), user("b"), user("a")] });
   assert.equal(giftCount(state.world), 2);
   assert.equal(state.world.residents.length, 2);
-  assert.equal(housesIn(state.world).length, 14);
+  assert.equal(housesIn(state.world).length, 12);
   assert.equal(state.runtime.effects.filter((effect) => effect.kind === "gift").length, 1);
   assert.equal(state.runtime.effects.filter((effect) => effect.kind === "housewarming").length, 2);
 });
@@ -104,7 +105,7 @@ test("individual gifts before aggregate and repeated recipients across batches p
   state = apply(state, { type: "GIFT_SUBSCRIPTION", ...gift, total: 2, recipients: [user("a"), user("b")] });
   state = apply(state, { type: "GIFT_SUBSCRIPTION", groupId: "batch-2", gifter: user("giver"), total: 1, recipients: [user("a")] });
   assert.equal(giftCount(state.world), 3);
-  assert.equal(housesIn(state.world).length, 14);
+  assert.equal(housesIn(state.world).length, 12);
   assert.equal(state.world.residents.length, 2);
   const wrongGifter = processEvent(state, event(state, { type: "GIFT_SUBSCRIPTION", ...gift, gifter: user("imposter"), total: 3, recipients: [] }));
   assert.equal(wrongGifter.outcome.status, "rejected");

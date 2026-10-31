@@ -1,5 +1,34 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 017C — Adaptive density and large-town rendering
+
+- [x] Audit before editing: global oldest-24 creation/simulation cap in Overview/previews; separate four-ambient production OBS fallback; no resident viewport culling; same rules in both OBS modes.
+- [x] Scale visual pool to actual unique population up to 256; sample across populated districts above the cap. Preserve same-town motion, deterministic hydration, newcomer behavior, counts, housing and demo/tenant isolation.
+- [x] Add resident screen-space overscan/hysteresis and fade-in, hide distant graphics and skip interpolation without camera-driven pool churn or world reconstruction. Suppress background resident drawing in transparent-only Spotlight.
+- [x] Add authorized, bounded opaque OBS visual roster; preserve private-world projection and bearer checks. Aliases rotate on process restart without durable writes or replayed arrivals.
+- [x] Nine new regressions cover 0/12/30/60/100/200, both modes, district coverage, privacy, refresh, overscan, 300-resident sampling and 10,000-record boundedness. All 230 tests and TypeScript passed.
+- [x] Final lint, production build and tracked/new-file Git diff whitespace checks passed. TypeScript and all 230 tests passed; no failures/skips. Git reports only Windows LF/CRLF normalization notices. Existing disposable local database fixtures were used by the full suite; no live database connection or migration command was issued.
+- [ ] Manual 1920×1080 Chrome/OBS performance and density checks in README. No browser automation, live database changes, migration commands, commits, pushes or deployment.
+
+## Prompt 017B — Housing allocation, population and neighborhood consistency
+
+- [x] Prioritize existing unassigned cottages in the shared simulator/trusted persistence processor; retain legacy/customized properties, reserve threshold, transactional receipts and concurrent allocation guards. No migration required.
+- [x] Share conceptual neighborhood count (one initial settlement plus confirmed expansions) across Overview, Dashboard, management, visitor, simulator and expanded OBS preview. Distinguish available housing from vacant plots.
+- [x] Add per-view initial-buffer baselines and unexpired-event deduplication to Overview/OBS; preserve reconnect cursors and independent concurrent views without global consumption or stored credentials.
+- [x] Reconcile up to 24 stable resident actors on saved-world changes; preserve matching motion/graphics, distribute established residents without arrival effects, remove stale actors and keep demo/tenant isolation.
+- [x] Add focused allocation, initial/expanded count, per-view refresh/reconnect, resident reconciliation/cap/isolation, UI label and persistent legacy/concurrency/rollback coverage; preserve existing gifts and entitlement tests.
+- [x] Lint, TypeScript, all 221 tests (zero failures/skips), production build and tracked/new-file Git diff whitespace checks passed. Nine tests added beyond 017A; existing allocation expectations updated. Initial test failure was an outdated absent-vs-empty customization expectation, corrected without changing persistence behavior. Only Windows LF/CRLF normalization notices remain.
+- [ ] Manual Overview/demo/OBS verification using README. Live Twitch connectivity and visual performance are not proven by synthetic tests. No browser automation, live database operations, migration changes, scopes, commit, push or deployment.
+
+## Prompt 017A — Population, housing and event audit
+
+- [x] Document actual counter formulas and initial values, saved/demo sources, identity lifecycle, exact reserve threshold and construction sequence in POPULATION_EVENT_AUDIT.md.
+- [x] Trace known/unresolved gift batches, verified live membership, Mayor tasks, OBS queues and missing live integrations. Record refresh replay, actor reconciliation and inconsistent labels as follow-up work; do not silently redefine neighborhood counts.
+- [x] Add four deterministic regressions covering lifecycle counters, five known recipients, unresolved five-gift batches, hydration without durable event replay, and built-house counts around expansion.
+- [x] TypeScript, lint and all 212 tests passed (synthetic data and existing disposable local database fixtures).
+- [x] Production build and tracked/new-file Git diff whitespace checks passed; Git emitted only the existing Windows LF-to-CRLF normalization notices. No browser automation, live database operations, commit, push or deployment.
+- [ ] Separate implementation decisions: housing/neighborhood terminology, refresh-safe presentation delivery, live actor reconciliation, gift explanations and additional event reactions/ingestion. No runtime behavior, migrations, production data, permissions or animations changed by this audit.
+
 ## Prompt 016B — Simplify Town Overview controls
 
 - [x] Trace reload (authenticated GET only) and regeneration (new in-memory demo seed/remount, no persistence mutation).

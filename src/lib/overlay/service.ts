@@ -7,6 +7,7 @@ import { parseInput, townIdSchema, validateWorld } from "../persistence/validati
 import type { AccountProfile } from "../auth/types";
 import { displaySchema, overlayWorld, type OverlayActivity } from "./model";
 import type { OverlayReaction } from "./reactions";
+import { OverlayPopulationProjector, type OverlayPopulation } from "./population";
 
 export const displayActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("save"), townId: townIdSchema, settings: displaySchema }).strict(),
@@ -15,6 +16,7 @@ export const displayActionSchema = z.discriminatedUnion("action", [
 const statusSchema = z.object({ settings: displaySchema, enabled: z.boolean() });
 export const hashOverlayToken = (token: string) => createHash("sha256").update(token).digest("hex");
 export class OverlayService {
+  private population = new OverlayPopulationProjector();
   constructor(private rpc: RpcClient, private towns: TownPersistenceService,
     private activity: (owner: string) => OverlayActivity,
     private reactions: (owner: string, townId: string) => OverlayReaction[]) {}
@@ -48,7 +50,9 @@ export class OverlayService {
     if (world.id !== townId) throw new PersistenceError("forbidden");
     return { townId, revision: row.revision!, settings: parseInput(displaySchema, row.settings),
       ...(revision !== row.revision ? { world: overlayWorld(world) } : {}),
+      population: this.population.project(world),
       activity: this.activity(world.streamerTwitchUserId), reactions: this.reactions(world.streamerTwitchUserId, townId) };
   }
 }
-export type OverlaySnapshot = Awaited<ReturnType<OverlayService["read"]>>;
+// Optional at the playback boundary for an already-open client receiving an older server response.
+export type OverlaySnapshot = Omit<Awaited<ReturnType<OverlayService["read"]>>, "population"> & { population?: OverlayPopulation };
