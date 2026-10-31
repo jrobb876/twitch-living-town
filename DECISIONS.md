@@ -1,5 +1,13 @@
 # Technical decisions
 
+## 2026-10-31 — Community import and verified live follows (Prompt 018)
+
+1. Add only `moderator:read:followers` as a new scope. Keep identity-only viewer login and preserve supported chat/subscription grants on each upgrade. Bind upgrades to the same authenticated Twitch user; do not accept a browser-selected target channel.
+2. Reuse subscriber synchronization and the existing server event transaction for all membership/housing. Followers use a stable per-town import receipt; live events retain Twitch delivery IDs. Reimports cannot allocate a second house or replace customization. Historical imports suppress effects/tasks and mark newly added members as established for both Overview and OBS; genuinely new live followers use the existing arrival behavior.
+3. Persist the import job in existing canonical town JSON through revision-checked RPCs, not a new table or an in-memory progress fallback. A five-minute renewable run-ID lease rejects concurrent claims/stale progress. Restart recovery is an explicit idempotent rescan, not a supposedly durable in-memory cursor. Successful member commits and progress checkpoints are separate transactions, so interrupted counters can lag until retry. Tests exercise this with the existing disposable PostgreSQL schema.
+4. Bound follower pages to 100 identities, at most 500 pages/10,000 followers/ten minutes; bound network retries to four attempts and rate-limit waits to 30 seconds. Refuse total-only/invalid identity responses and incomplete pagination. Subscriber sync keeps its existing API/error/entitlement rules. Existing whole-world persistence capacity can stop a large import before these limits; report incomplete rather than fabricate a complete community.
+5. Extend the existing socket registry with type-specific versions and `channel.follow` v2 conditions. Keep readiness dependent on successful subscription creation; reuse migration/reconnect handling and durable event deduplication. The live follow queue is bounded and transient; reconnect/resync after restart. Distributed durable event workers and optimized large-community batch writes remain deferred.
+
 ## 2026-10-31 — Adaptive resident density (Prompt 017C)
 
 1. Replace the global oldest-24 actor pool with one actor per recorded resident up to 256. Above that bound select round-robin across populated technical districts. Keep pool identity independent of camera movement; hydrate near homes/within populated districts and preserve existing actor state at synchronization. This budget covers all 0–200 scenarios without claiming a hardware FPS guarantee.

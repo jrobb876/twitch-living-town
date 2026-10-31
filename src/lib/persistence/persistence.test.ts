@@ -18,7 +18,12 @@ import { createLiveView, projectLiveActivity } from "../chat/projection";
 import { chatMessage, NOW } from "../chat/test-fixtures";
 import { LiveChatFeed } from "../chat/feed";
 import { validateWorld } from "./validation";
-import { CHAT_SCOPE, SUBSCRIPTION_SCOPE } from "../auth/types";
+import { CHAT_SCOPE, SUBSCRIPTION_SCOPE, FOLLOWER_SCOPE } from "../auth/types";
+import { CommunityImportService } from "../community/service";
+import { TwitchFollowers, type VerifiedFollower } from "../community/twitch";
+import { createCommunityHandlers } from "../community/http";
+import { IMPORT_LEASE_MS } from "../community/types";
+import { followNotification } from "../community/test-fixtures";
 import { ChatManager } from "../chat/manager";
 import { createChatHandlers } from "../chat/http";
 import { SubscriberHousingService } from "../subscribers/service";
@@ -974,4 +979,160 @@ test("migration 003 grants only the server role the indexed multi-town lookup", 
       else await assert.rejects(query(), (e: unknown) => (e as { code: string }).code === "42501");
     } finally { await db.exec("reset role"); }
   }
+});
+
+async function communitySetup(persistence = service) {
+  const h = await housingSetup(persistence);
+  h.f.twitch.validation.scopes.push(FOLLOWER_SCOPE); await h.f.service.scopedSession(h.login.id, true);
+  h.setPages([[]]);
+  let pages: VerifiedFollower[][] = [[]], failure = -1;
+  const api = new TwitchFollowers("synthetic");
+  api.page = async (_, broadcaster, cursor) => {
+    assert.equal(broadcaster, h.owner.twitchUserId);
+    const index = Number(cursor ?? 0); if (index === failure) throw new HousingError("unavailable");
+    return { followers: pages[index], total: new Set(pages.flat().map((r) => r.twitchUserId)).size, cursor: index + 1 < pages.length ? String(index + 1) : undefined };
+  };
+  const community = new CommunityImportService(h.f.service, () => persistence, h.housing, api, h.now);
+  return { ...h, community, followers: api,
+    setFollowers(value: VerifiedFollower[][], fail = -1) { pages = value; failure = fail; },
+    async run() { await community.start(h.grant); await community.waitForImport(h.owner.twitchUserId); return community.status(h.owner); },
+  };
+}
+const follower = (id: string): VerifiedFollower => ({ twitchUserId: id, displayName: `Neighbor ${id}` });
+
+test("community import persists empty, follower-only, subscriber-only and overlapping memberships without replacing the town", async () => {
+  for (const mode of ["empty", "followers", "subscribers", "overlap"]) {
+    const h = await communitySetup();
+    if (["followers", "overlap"].includes(mode)) h.setFollowers([[follower("777"), follower("778"), follower("777")]]);
+    if (["subscribers", "overlap"].includes(mode)) h.setPages([[subscriber("777"), subscriber("779")]]);
+    const status = await h.run(), loaded = (await service.mine(h.owner))!;
+    assert.equal(status.summary?.status, "complete", JSON.stringify(status.summary));
+    const count = mode === "empty" ? 0 : mode === "overlap" ? 3 : 2;
+    assert.equal(status.summary?.uniqueResidentsImported, count); assert.equal(loaded.world.residents.length, count);
+    assert.equal(status.summary?.subscriberHousesAssigned, ["subscribers", "overlap"].includes(mode) ? 2 : 0);
+    assert.deepEqual(loaded.world.layout, h.town.world.layout); assert.deepEqual(loaded.world.mayor, h.town.world.mayor);
+    assert.ok(loaded.world.residents.every((r) => r.established));
+    assert.equal((await h.housing.status(h.owner)).presentations.length, 0);
+    const fresh = new CommunityImportService(h.f.service, () => service, h.housing, h.followers, h.now);
+    assert.deepEqual((await fresh.status(h.owner)).summary, status.summary);
+    const again = await h.run(); assert.equal(again.summary?.status, "complete"); assert.equal(again.summary?.subscriberHousesAssigned, 0);
+    assert.deepEqual((await service.mine(h.owner))!.world.buildings, loaded.world.buildings);
+  }
+});
+
+test("hundreds of paged followers deduplicate across pages and towns; subscriber expansion preserves customized homes", async () => {
+  const a = await communitySetup(), b = await communitySetup();
+  const members = Array.from({ length: 205 }, (_, i) => follower(String(500000 + i)));
+  a.setFollowers([members.slice(0, 100), members.slice(99, 199), members.slice(199)]);
+  a.setPages([members.slice(0, 30).map((r) => subscriber(r.twitchUserId))]);
+  const first = await a.run(); assert.equal(first.summary?.status, "complete", JSON.stringify(first.summary));
+  assert.equal(first.summary?.followersDiscovered, 205); assert.equal(first.summary?.subscribersDiscovered, 30); assert.equal(first.summary?.uniqueResidentsImported, 205);
+  assert.equal(first.summary?.subscriberHousesAssigned, 30); assert.equal(first.summary?.pages, 3);
+  const loaded = (await service.mine(a.owner))!, home = housesIn(loaded.world).find((h) => h.ownerTwitchUserId === members[0].twitchUserId)!;
+  assert.ok(loaded.world.plots.length > a.town.world.plots.length); assert.equal(new Set(loaded.world.residents.map((r) => r.id)).size, 205);
+  assert.equal(new Set(loaded.world.residents.filter((r) => r.houseId).map((r) => r.houseId)).size, 30);
+  await service.updateHouse(a.owner, loaded.world.id, home.id, loaded.revision, { customization: { sign: "Kept during import" } });
+  const before = (await service.mine(a.owner))!;
+  b.setFollowers([[members[0]]]); b.setPages([[subscriber(members[0].twitchUserId)]]); await b.run();
+  const independent = (await service.mine(b.owner))!; assert.notEqual(independent.world.residents[0].id, loaded.world.residents[0].id);
+  assert.equal((await a.run()).summary?.subscriberHousesAssigned, 0);
+  const after = (await service.mine(a.owner))!;
+  assert.deepEqual(after.world.buildings, before.world.buildings); assert.deepEqual(after.world.layout, before.world.layout);
+  assert.deepEqual(after.world.mayor, before.world.mayor); assert.deepEqual(after.world.districts, before.world.districts);
+  assert.deepEqual(await service.mine(b.owner), independent);
+  assert.equal("communityImport" in await service.publicTown(loaded.world.id), false);
+});
+
+test("failed pages preserve checkpoints, duplicate requests conflict, and retry safely rescans the saved town", async () => {
+  const h = await communitySetup(); h.setFollowers([[follower("777")], [follower("778")]], 1);
+  let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; }), original = h.followers.page.bind(h.followers);
+  h.followers.page = async (...args) => { await gate; return original(...args); };
+  await h.community.start(h.grant);
+  await assert.rejects(h.community.start(h.grant), (e: unknown) => e instanceof HousingError && e.code === "busy");
+  const otherWorker = new CommunityImportService(h.f.service, () => service, h.housing, h.followers, h.now);
+  await assert.rejects(otherWorker.start(h.grant), code("conflict"));
+  release(); await h.community.waitForImport(h.owner.twitchUserId);
+  assert.equal((await h.community.status(h.owner)).summary?.status, "partial");
+  assert.equal((await service.mine(h.owner))!.world.residents.length, 1);
+  h.setFollowers([[follower("777")], [follower("778")]]);
+  const retried = await h.run(); assert.equal(retried.summary?.status, "complete"); assert.equal(retried.summary?.uniqueResidentsImported, 2);
+  assert.equal((await service.mine(h.owner))!.world.residents.length, 2);
+});
+
+test("persisted leases survive interruption, fence stale workers and reject foreign ownership without a new migration", async () => {
+  const h = await communitySetup(), other = await create();
+  await h.run(); const completed = (await h.community.status(h.owner)).summary!;
+  const interrupted = { ...completed, id: randomUUID(), status: "running" as const, phase: "followers" as const, finishedAt: null, leaseUntil: h.now() + IMPORT_LEASE_MS };
+  await service.saveCommunityImport(h.owner, h.town.world.id, interrupted, h.now(), true);
+  assert.equal((await h.community.status(h.owner)).summary?.error, "interrupted");
+  await assert.rejects(h.community.start(h.grant), code("conflict"));
+  await assert.rejects(service.saveCommunityImport(other.owner, h.town.world.id, interrupted, h.now(), true), code("forbidden"));
+  h.advance(IMPORT_LEASE_MS + 1);
+  assert.equal((await h.run()).summary?.status, "complete");
+  await assert.rejects(service.saveCommunityImport(h.owner, h.town.world.id, interrupted, h.now()), code("conflict"));
+});
+
+test("failed status persistence is never reported as complete; missing follower permission cannot start import", async () => {
+  let fail = false;
+  const persistence = new TownPersistenceService({ ownedTownIds: (id) => repository.ownedTownIds(id), findByOwner: (id) => repository.findByOwner(id),
+    load: (id) => repository.load(id), create: (p, w) => repository.create(p, w), commit: async (owner, town, receipt) => {
+      if (fail && town.world.communityImport?.status !== "running") throw new PersistenceError("unavailable");
+      return repository.commit(owner, town, receipt);
+    } });
+  const h = await communitySetup(persistence); fail = true;
+  const status = await h.run(); assert.equal(status.summary?.status, "partial"); assert.equal(status.persistenceError, true);
+  assert.equal((await service.mine(h.owner))!.world.communityImport?.status, "running");
+  h.f.twitch.validation.scopes = [SUBSCRIPTION_SCOPE]; await h.f.service.scopedSession(h.login.id, true);
+  await assert.rejects(h.community.start(h.grant), (e: unknown) => (e as { code: string }).code === "follower_scope");
+});
+
+test("missing subscriber scope and unsupported subscriber access retain followers with an explicit incomplete phase", async () => {
+  const h = await communitySetup(); h.setFollowers([[follower("777")]]);
+  h.f.twitch.validation.scopes = [FOLLOWER_SCOPE]; await h.f.service.scopedSession(h.login.id, true);
+  let status = await h.run(); assert.equal(status.summary?.status, "partial"); assert.equal(status.summary?.phase, "subscribers");
+  assert.equal(status.summary?.error, "subscription_scope"); assert.equal((await service.mine(h.owner))!.world.residents.length, 1);
+  h.f.twitch.validation.scopes = [FOLLOWER_SCOPE, SUBSCRIPTION_SCOPE]; await h.f.service.scopedSession(h.login.id, true);
+  h.api.page = async () => { throw new HousingError("unsupported"); };
+  status = await h.run(); assert.equal(status.summary?.status, "partial"); assert.equal(status.summary?.error, "unsupported");
+  assert.equal(status.summary?.followersDiscovered, 1); assert.equal(status.summary?.subscriberHousesAssigned, 0);
+});
+
+test("live follow receipts deduplicate across restart, reconcile existing subscribers and welcome only a new neighbor", async () => {
+  const h = await communitySetup(); h.setPages([[subscriber("777")]]); await h.run();
+  const before = (await service.mine(h.owner))!;
+  const send = async (community: CommunityImportService, input: unknown) => {
+    community.enqueue(h.owner, h.grant.key, input);
+    for (let i = 0; i < 1000 && (await community.status(h.owner)).pendingEvents; i++) await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.equal((await community.status(h.owner)).pendingEvents, 0);
+  };
+  await send(h.community, followNotification(h.owner.twitchUserId));
+  assert.equal((await h.housing.status(h.owner)).presentations.length, 0);
+  const input = followNotification(h.owner.twitchUserId, "888", "new-follow");
+  await send(h.community, input); await send(h.community, input);
+  const fresh = new CommunityImportService(h.f.service, () => service, h.housing, h.followers, h.now); await send(fresh, input);
+  assert.equal((await h.housing.status(h.owner)).presentations.length, 1);
+  const after = (await service.mine(h.owner))!;
+  assert.equal(after.world.residents.length, 2); assert.equal(after.world.residents[1].houseId, null);
+  assert.deepEqual(after.world.buildings, before.world.buildings);
+});
+
+test("community HTTP requires owner session and CSRF, rejects forged bodies, and upgrades only required scopes", async () => {
+  const h = await communitySetup(), manager = new ChatManager(h.f.service);
+  const handlers = createCommunityHandlers(() => h.f.service, () => h.community, () => manager, false);
+  const headers = { cookie: `${cookieNames(false).session}=${h.login.id}`, origin: h.f.config.origin, "content-type": "application/json", "x-csrf-token": h.f.service.csrfToken(h.login.id) };
+  const post = (body: unknown, changed = {}) => new NextRequest("http://localhost:3000/api/community", { method: "POST", headers: { ...headers, ...changed }, body: JSON.stringify(body) });
+  assert.equal((await handlers.control(post({ action: "import" }, { cookie: "" }))).status, 401);
+  assert.equal((await handlers.control(post({ action: "import" }, { origin: "null" }))).status, 403);
+  assert.equal((await handlers.control(post({ action: "import" }, { "x-csrf-token": "" }))).status, 403);
+  for (const body of [{ action: "import", broadcasterId: "999" }, { action: "event", event: followNotification() }, { action: "import", world: h.town.world }]) assert.equal((await handlers.control(post(body))).status, 400);
+  const authorized = await handlers.control(post({ action: "authorize" }));
+  const scopes = new URL((await authorized.json()).location).searchParams.get("scope")!.split(" ").sort();
+  assert.deepEqual(scopes, [CHAT_SCOPE, SUBSCRIPTION_SCOPE, FOLLOWER_SCOPE].sort());
+  const housing = createHousingHandlers(() => h.f.service, () => h.housing, () => manager, () => service, false);
+  const housingUpgrade = await housing.control(post({ action: "authorize" }));
+  assert.deepEqual(new URL((await housingUpgrade.json()).location).searchParams.get("scope")!.split(" ").sort(), scopes);
+  assert.equal((await handlers.control(post({ action: "import" }))).status, 202); await h.community.waitForImport(h.owner.twitchUserId);
+  const status = await handlers.status(new NextRequest("http://localhost:3000/api/community", { headers }));
+  assert.match(status.headers.get("cache-control")!, /no-store/);
+  assert.equal((await status.json()).summary.status, "complete"); manager.dispose();
 });

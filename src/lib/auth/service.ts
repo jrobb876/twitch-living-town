@@ -1,6 +1,6 @@
 import { isOpaqueToken, randomToken, safeEqual, TokenVault } from "./crypto";
 import { MemoryAuthStore, type StoredSession } from "./store";
-import { AuthError, isAuthError, CHAT_SCOPE, SUBSCRIPTION_SCOPE, SESSION_TTL_MS, STATE_TTL_MS, VALIDATION_INTERVAL_MS, type AccountProfile, type AuthConfig, type OAuthTokens, type TwitchGateway, type TokenValidation } from "./types";
+import { AuthError, isAuthError, CHAT_SCOPE, SUBSCRIPTION_SCOPE, FOLLOWER_SCOPE, COMMUNITY_SCOPES, SESSION_TTL_MS, STATE_TTL_MS, VALIDATION_INTERVAL_MS, type AccountProfile, type AuthConfig, type OAuthTokens, type TwitchGateway, type TokenValidation } from "./types";
 import { authDiagnostic, type AuthOperation } from "./diagnostics";
 
 export class AuthService {
@@ -28,7 +28,7 @@ export class AuthService {
 
   beginLogin(previousBinding?: string, chatUserId?: string, scopes = chatUserId ? [CHAT_SCOPE] : []) {
     const requiredScopes = [...new Set(scopes)];
-    if (requiredScopes.some((scope) => ![CHAT_SCOPE, SUBSCRIPTION_SCOPE].includes(scope)) || (requiredScopes.length && !chatUserId)) throw new AuthError("forbidden");
+    if (requiredScopes.some((scope) => !COMMUNITY_SCOPES.includes(scope)) || (requiredScopes.length && !chatUserId)) throw new AuthError("forbidden");
     this.cancelLogin(previousBinding);
     for (const [key, entry] of this.store.states) if (entry.expiresAt <= this.now()) this.store.states.delete(key);
     if (this.store.states.size >= 1000) throw new AuthError("capacity");
@@ -80,7 +80,7 @@ export class AuthService {
       operation = "chat_permission";
       const required = attempt.requiredScopes ?? (attempt.chatUserId ? [CHAT_SCOPE] : []);
       if (attempt.chatUserId && (attempt.chatUserId !== profile.twitchUserId || required.some((scope) => !validation.scopes.includes(scope))))
-        throw new AuthError(required.includes(SUBSCRIPTION_SCOPE) ? "subscription_scope" : "chat_scope");
+        throw new AuthError(required.includes(FOLLOWER_SCOPE) ? "follower_scope" : required.includes(SUBSCRIPTION_SCOPE) ? "subscription_scope" : "chat_scope");
       // Keep validation work bounded for this single-process prototype.
       if (this.store.sessions.size >= 200) throw new AuthError("capacity");
       operation = "session_creation";
@@ -99,7 +99,7 @@ export class AuthService {
       await this.store.flush();
       if (!this.store.sessions.has(key)) throw new AuthError("unauthorized");
       return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS,
-        chatRequested: required.includes(CHAT_SCOPE), housingRequested: required.includes(SUBSCRIPTION_SCOPE) };
+        chatRequested: required.includes(CHAT_SCOPE), housingRequested: required.includes(SUBSCRIPTION_SCOPE), communityRequested: required.includes(FOLLOWER_SCOPE) };
     } catch (error) {
       if (createdKey) this.store.sessions.delete(createdKey);
       authDiagnostic(operation, "failure", error);
@@ -233,7 +233,7 @@ export class AuthService {
     if (!profile) throw new AuthError("unauthorized");
     const session = this.store.sessions.get(key);
     if (!session) throw new AuthError("unauthorized");
-    if (scopes.some((scope) => !session.scopes?.includes(scope))) throw new AuthError(scopes.includes(SUBSCRIPTION_SCOPE) ? "subscription_scope" : "chat_scope");
+    if (scopes.some((scope) => !session.scopes?.includes(scope))) throw new AuthError(scopes.includes(FOLLOWER_SCOPE) ? "follower_scope" : scopes.includes(SUBSCRIPTION_SCOPE) ? "subscription_scope" : "chat_scope");
     return { profile, accessToken: this.vault.open(session.encryptedTokens, key).accessToken };
   }
   revokeChat(key: string) {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { TownWorld } from "../simulation/types";
 import { PersistenceError } from "./types";
+import { communityImportSchema } from "../community/types";
 
 const id = z.string().min(1).max(256);
 export const twitchId = z.string().regex(/^\d{1,30}$/);
@@ -38,12 +39,13 @@ const worldSchema = z.object({ schemaVersion: z.literal(1), generatorVersion: z.
   buildings: z.array(z.discriminatedUnion("kind", [z.object({ id, kind: z.literal("town-hall"), position: point }).strict(),
     z.object({ id, kind: z.literal("house"), position: point, plotId: id, ownerTwitchUserId: twitchId.nullable(), appearance: appearanceSchema, property: propertySchema.optional() }).strict()])).max(501),
   residents: z.array(z.object({ id, twitchUserId: twitchId, displayName: z.string().min(1).max(100), isFollower: z.boolean(), isSubscriber: z.boolean(),
-    subscriptionMonths: z.number().int().min(0).max(10000), houseId: id.nullable(), housingStatus: z.enum(["none", "housed", "waiting"]), subscription: subscriptionSchema.optional() }).strict()).max(10000),
+    subscriptionMonths: z.number().int().min(0).max(10000), houseId: id.nullable(), housingStatus: z.enum(["none", "housed", "waiting"]), subscription: subscriptionSchema.optional(), established: z.boolean().optional() }).strict()).max(10000),
   mayor: mayorInputSchema.extend({ id, species: z.literal("cat"), headquartersId: id }),
   processedEvents: z.array(z.unknown()).length(0),
   giftGroups: z.array(z.object({ id: z.string().min(1).max(4096), gifter: z.object({ twitchUserId: twitchId, displayName: z.string().min(1).max(100) }).strict().nullable(),
     announcedCount: z.number().int().min(0).max(10000), recipientIds: z.array(twitchId).max(10000) }).strict()).max(10000),
   subscriberSync: syncSchema.optional(),
+  communityImport: communityImportSchema.optional(),
 }).strict();
 export function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);

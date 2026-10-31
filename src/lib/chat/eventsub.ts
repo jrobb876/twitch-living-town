@@ -2,7 +2,7 @@ import { isAuthError } from "../auth/types";
 import { identifier, record } from "./mapping";
 import type { ChatConnectionState } from "./types";
 import { chatDiagnostic } from "./diagnostics";
-import type { EventSubType } from "./subscription";
+import { eventVersion, type EventSubType } from "./subscription";
 export type EventSubRegistration = { id: string; type: EventSubType };
 
 export const EVENTSUB_URL = "wss://eventsub.wss.twitch.tv/ws?keepalive_timeout_seconds=30";
@@ -52,7 +52,7 @@ export class EventSubConnection {
   }
   private terminal(error: unknown) {
     chatDiagnostic("socket", "failure", {}, error);
-    if (isAuthError(error) && ["unauthorized", "chat_scope", "subscription_scope", "invalid_token"].includes(error.code)) {
+    if (isAuthError(error) && ["unauthorized", "chat_scope", "subscription_scope", "follower_scope", "invalid_token"].includes(error.code)) {
       this.stop("revoked"); this.deps.revoked();
     } else this.fail();
   }
@@ -156,7 +156,7 @@ export class EventSubConnection {
     }
     const registered = this.subscriptions?.find((item) => item.id === subscription.id);
     const reason = !this.subscriptions ? "subscription_pending" : !registered ? "subscription_mismatch"
-      : subscription.type !== registered.type || subscription.version !== "1" ? "event_type"
+      : subscription.type !== registered.type || subscription.version !== eventVersion(registered.type) ? "event_type"
       : transport.method !== "websocket" ? "transport_mismatch" : transport.session_id !== slot.sessionId ? "session_mismatch" : null;
     if (reason) { chatDiagnostic("notification", "rejected", { reason }); return; }
     if (meta.message_type === "revocation") { chatDiagnostic("revocation", "received"); this.stop("revoked"); this.deps.revoked(); return; }

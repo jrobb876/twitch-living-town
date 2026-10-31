@@ -1,5 +1,6 @@
 import type { Point, Town } from "../town/types";
 import type { MayorLook, MayorPersonality } from "../mayor/presets";
+import type { CommunityImport } from "../community/types";
 
 export type TwitchIdentity = { twitchUserId: string; displayName: string };
 /** World units are independent of camera zoom, viewport size and asset resolution. */
@@ -22,6 +23,7 @@ export type Building = {
 };
 export type HouseBuilding = Extract<Building, { kind: "house" }>;
 export type Resident = TwitchIdentity & {
+  established?: boolean;
   id: string; isFollower: boolean; isSubscriber: boolean; subscriptionMonths: number;
   houseId: string | null; housingStatus: "none" | "housed" | "waiting";
   subscription?: SubscriptionEvidence;
@@ -57,6 +59,7 @@ export type TownWorld = {
     appearance?: { preset: "default" | MayorLook }; personality?: MayorPersonality };
   processedEvents: EventOutcome[]; giftGroups: GiftGroup[];
   subscriberSync?: SubscriberSync;
+  communityImport?: CommunityImport;
 };
 export type TownEffect = {
   id: string; kind: "arrival" | "housewarming" | "welcome-back" | "gift" | "raid" | "neighborhood";

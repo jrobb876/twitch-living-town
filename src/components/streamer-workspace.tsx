@@ -8,6 +8,7 @@ import { mayorLook, mayorLooks, mayorPalettes, personalities, personalityFor, pe
 
 import ChatConnection from "./chat-connection";
 import SubscriberHousing from "./subscriber-housing";
+import CommunityImportPanel from "./community-import";
 import MayorPortrait from "./mayor-portrait";
 import TownPreview from "./town-preview";
 import ObsSettings from "./obs-settings";
@@ -55,7 +56,7 @@ function Onboarding({ csrfToken }: { csrfToken: string }) {
         body: JSON.stringify({ name: draft.name, mayorName: draft.mayorName, mayorAppearance: { preset: draft.look }, mayorPersonality: personalityFor(draft.personality === "existing" ? "curious" : draft.personality) }) });
       const data = await response.json();
       if (!response.ok) { setError(data.message ?? "Your town could not be created. Please retry."); setBusy(false); return; }
-      window.location.replace("/dashboard");
+      window.location.replace("/dashboard/town?community=import#community");
     } catch { setError("Creation could not be confirmed. Retrying is safe: you can only have one town."); setBusy(false); }
   }
   return <><div className="eyebrow">A LITTLE PLACE TO BELONG</div><h1>Welcome home.</h1><p className="workspace-intro">Make a place for your community, with one small Mayor to look after it.</p>
@@ -102,6 +103,7 @@ function Dashboard({ initialTown, csrfToken }: { initialTown: StoredTown; csrfTo
       <div className="dashboard-stats"><div><strong>{world.residents.length}</strong><span>Residents</span></div><div><strong>{world.residents.filter((r) => r.subscription?.active && r.houseId).length}</strong><span>Active subscriber homes</span></div><div><strong>{world.plots.filter((p) => !p.buildingId).length} / {world.plots.length}</strong><span>Vacant / total plots</span></div></div>
       <p>{neighborhoodLabel(world)} · {world.residents.filter((r) => r.housingStatus === "waiting").length} neighbors waiting for homes.</p><button className="account-button" onClick={() => void refresh()}>Refresh town status</button>
       <p>These connections are optional. If permission is missing, use the authorization button below. If your Twitch session has expired, <Link href="/account">reconnect your account</Link>, then return here.</p>
+      <CommunityImportPanel />
       <ChatConnection mode="live" onMode={noMode} onSnapshot={noSnapshot} hasSavedTown showSourceControls={false} />
       <SubscriberHousing onPresentation={noPresentation} />
     </section>

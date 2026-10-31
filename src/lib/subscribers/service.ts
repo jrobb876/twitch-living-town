@@ -34,7 +34,7 @@ export class SubscriberHousingService {
     try { return await this.twitch.page(credentials.accessToken, grant.profile.twitchUserId, cursor, userId); }
     catch (error) { if (isAuthError(error) && error.code === "invalid_token") this.auth.revokeChat(grant.key); throw error; }
   }
-  async startSync(grant: Grant) {
+  async startSync(grant: Grant, options: { historical?: boolean; onDiscovered?: () => void; onRecord?: (user: VerifiedSubscriber, result: Awaited<ReturnType<TownPersistenceService["applyVerifiedEvent"]>>) => Promise<void>; onProgress?: () => Promise<void> } = {}) {
     this.active(grant);
     const id = grant.profile.twitchUserId;
     if (this.jobs.has(id)) throw new HousingError("busy");
@@ -45,7 +45,7 @@ export class SubscriberHousingService {
     const summary: SubscriberSync = { id: randomUUID(), status: "running", startedAt: this.now(), finishedAt: null,
       imported: 0, updated: 0, unchanged: 0, waitlisted: 0, failed: 0, pages: 0, error: null };
     this.jobStatus.set(id, summary);
-    const job = this.synchronize(grant, town.world.id, summary).catch(() => { summary.status = "failed"; summary.error = "unavailable"; summary.finishedAt = this.now(); }).finally(() => { this.jobs.delete(id); });
+    const job = this.synchronize(grant, town.world.id, summary, options).catch(() => { summary.status = "failed"; summary.error = "unavailable"; summary.finishedAt = this.now(); }).finally(() => { this.jobs.delete(id); });
     this.jobs.set(id, job);
     return { ...summary };
   }
@@ -53,26 +53,28 @@ export class SubscriberHousingService {
   private evidence(user: VerifiedSubscriber, source: "sync" | "eventsub", at: number, active = true): SubscriptionEvidence {
     return { active, tier: user.tier, isGift: user.isGift, source, verifiedAt: at };
   }
-  private async synchronize(grant: Grant, townId: string, summary: SubscriberSync) {
+  private async synchronize(grant: Grant, townId: string, summary: SubscriberSync, options: Parameters<SubscriberHousingService["startSync"]>[1] = {}) {
     const persistence = this.persistence(), seen = new Set<string>(), cursors = new Set<string>();
     let cursor: string | undefined;
     try {
       await persistence.saveSync(grant.profile, townId, summary);
       do {
         this.active(grant);
+        await options.onProgress?.();
         if (summary.pages >= 500 || seen.size >= 10000 || this.now() - summary.startedAt > 10 * 60000) throw new HousingError("capacity");
         const page = await this.page(grant, cursor); summary.pages++;
         const verifiedAt = this.now();
         let current = await persistence.owned(grant.profile, townId);
         for (const user of page.subscribers) {
           if (seen.has(user.twitchUserId)) continue;
-          seen.add(user.twitchUserId); this.active(grant);
+          seen.add(user.twitchUserId); this.active(grant); options.onDiscovered?.();
           try {
             const prior = current.world.residents.find((r) => r.twitchUserId === user.twitchUserId);
             const same = prior?.isSubscriber && prior.displayName === user.displayName && prior.subscription?.tier === user.tier && prior.subscription?.isGift === user.isGift;
-            const result = await persistence.applyVerifiedEvent({ source: "twitch_verified", event: { id: `sync:${summary.id}:${user.twitchUserId}`, type: "NEW_SUBSCRIBER",
+            const result = await persistence.applyVerifiedEvent({ source: "twitch_verified", historical: options.historical, event: { id: `sync:${summary.id}:${user.twitchUserId}`, type: "NEW_SUBSCRIBER",
               townId, occurredAt: verifiedAt, user: { twitchUserId: user.twitchUserId, displayName: user.displayName }, subscription: this.evidence(user, "sync", verifiedAt) } });
             current = result.town;
+            await options.onRecord?.(user, result);
             if (result.expansionDeferred) summary.error = "expansion_deferred";
             const neighborhoods = result.presentation?.effects.filter((effect) => effect.kind === "neighborhood") ?? [];
             if (neighborhoods.length) this.presentations.set(grant.profile.twitchUserId, [...(this.presentations.get(grant.profile.twitchUserId) ?? []),
@@ -93,6 +95,7 @@ export class SubscriberHousingService {
         for (const resident of town.world.residents.filter((r) => r.isSubscriber && !seen.has(r.twitchUserId))) {
           if (this.now() - summary.startedAt > 10 * 60000) throw new HousingError("capacity");
           this.active(grant);
+          await options.onProgress?.();
           const verified = await this.page(grant, undefined, resident.twitchUserId);
           if (verified.subscribers.length) continue;
           const at = this.now();
@@ -180,6 +183,9 @@ export class SubscriberHousingService {
   }
   overlayPresentations(userId: string, townId: string) {
     return (this.presentations.get(userId) ?? []).filter((item) => item.townId === townId && item.expiresAt > this.now());
+  }
+  present(userId: string, presentation: HousingPresentation) {
+    this.presentations.set(userId, [...(this.presentations.get(userId) ?? []), presentation].slice(-32));
   }
   async status(profile: AccountProfile) {
     const town = await this.persistence().mine(profile), houses = town ? housesIn(town.world) : [];

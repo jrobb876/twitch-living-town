@@ -1,4 +1,5 @@
 import { randomUUID, randomInt } from "node:crypto";
+import { communityImportSchema, type CommunityImport } from "../community/types";
 import { z } from "zod";
 import type { AccountProfile } from "../auth/types";
 import { createWorld, createSession, housesIn } from "../simulation/world";
@@ -23,6 +24,18 @@ const durableEventSchema = z.discriminatedUnion("type", [
 export class TownPersistenceService {
   constructor(private repository: PersistentTownRepository) {}
   mine(profile: AccountProfile) { return this.repository.findByOwner(profile.twitchUserId); }
+  /** Existing owner-checked CAS RPC stores progress in world JSON; no new table or public mutation surface. */
+  async saveCommunityImport(profile: AccountProfile, townId: string, input: CommunityImport, now: number, claim = false) {
+    const summary = parseInput(communityImportSchema, input);
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const town = await this.owned(profile, townId), prior = town.world.communityImport;
+      if (claim ? prior?.status === "running" && prior.leaseUntil > now
+        : !prior || prior.id !== summary.id || prior.status !== "running" || prior.leaseUntil <= now) throw new PersistenceError("conflict");
+      const result = await this.repository.commit(profile.twitchUserId, { ...town, world: { ...town.world, communityImport: summary } });
+      if (result.status === "saved") return result.town;
+    }
+    throw new PersistenceError("conflict");
+  }
   private propertyView(profile: AccountProfile, town: StoredTown, houseId: string): PropertyView {
     const house = housesIn(town.world).find((item) => item.id === houseId && item.ownerTwitchUserId === profile.twitchUserId);
     if (!house) throw new PersistenceError("forbidden");
@@ -134,7 +147,7 @@ export class TownPersistenceService {
   }
   /** SERVER ADAPTER ONLY. No HTTP endpoint exposes this; a future verified Twitch adapter must supply evidence.
    * This is not subscription verification. Synthetic/demo events must never call it. */
-  async applyVerifiedEvent(input: { source: "twitch_verified"; event: DurableEvent }, allowExpansion = true): Promise<CommitResult & {
+  async applyVerifiedEvent(input: { source: "twitch_verified"; event: DurableEvent; historical?: boolean }, allowExpansion = true): Promise<CommitResult & {
     expansionDeferred: boolean; presentation: { effects: TownEffect[]; tasks: MayorState["tasks"] } | null;
   }> {
     if (input.source !== "twitch_verified") throw new PersistenceError("invalid_input");
@@ -142,7 +155,7 @@ export class TownPersistenceService {
     for (let attempt = 0; attempt < 8; attempt++) {
       const town = await this.repository.load(event.townId);
       if (!town) throw new PersistenceError("not_found");
-      const result = processEvent(createSession(town.world, event.occurredAt), event, event.occurredAt, { allowExpansion });
+      const result = processEvent(createSession(town.world, event.occurredAt), event, event.occurredAt, { allowExpansion, historical: input.historical });
       if (result.outcome.status !== "applied") throw new PersistenceError("invalid_input");
       const world = result.state.world;
       world.processedEvents = []; // SQL's unique ledger is durable; no chat/outcome history in world responses.
@@ -151,7 +164,8 @@ export class TownPersistenceService {
         if (!allowExpansion) result.outcome.message += " Neighborhood expansion deferred; retry subscriber sync.";
         const saved = await this.repository.commit(world.streamerTwitchUserId, { ...town, world: validateWorld(world) },
           { id: event.id, type: event.type, source: input.source, occurredAt: event.occurredAt, outcome: result.outcome });
-        if (saved.status !== "conflict") return { ...saved, expansionDeferred: !allowExpansion && saved.status === "saved", presentation: saved.status === "saved"
+        if (saved.status !== "conflict") return { ...saved, outcome: saved.status === "saved" ? result.outcome : saved.outcome,
+          expansionDeferred: !allowExpansion && saved.status === "saved", presentation: saved.status === "saved" && !input.historical
           ? { effects: result.state.runtime.effects, tasks: result.state.runtime.mayor.tasks } : null };
       } catch (error) {
         // SQL failures roll back; an ambiguous network response may have committed.

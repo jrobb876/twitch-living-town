@@ -21,7 +21,7 @@ export function tickTown(state: TownSession, now: number): TownSession {
 }
 
 /** Internal event boundary. Future Twitch adapters supply normalized, verified events. */
-export function processEvent(state: TownSession, event: TownEvent, receivedAt = state.runtime.now, options = { allowExpansion: true }): { state: TownSession; outcome: EventOutcome } {
+export function processEvent(state: TownSession, event: TownEvent, receivedAt = state.runtime.now, options: { allowExpansion: boolean; historical?: boolean } = { allowExpansion: true }): { state: TownSession; outcome: EventOutcome } {
   const outcome: EventOutcome = { eventId: event.id, type: event.type, status: "applied", message: "", houseIds: [], residentIds: [] };
   const reject = (message: string) => ({ state, outcome: { ...outcome, status: "rejected" as const, message } });
   if (event.townId !== state.world.id) return reject("Event belongs to a different town.");
@@ -67,10 +67,12 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     }
   }
   function effect(kind: TownEffect["kind"], label: string, position = world.layout.hall, lifetime = 8000) {
+    if (options.historical) return;
     runtime.effects.push({ id: `${event.id}:${runtime.effects.length}`, kind, label, position: { ...position }, startedAt: now, expiresAt: now + lifetime });
     runtime.effects = runtime.effects.slice(-32);
   }
   function mayorTask(nodeId: string, kind: "celebrate" | "welcome", lifetime = 120000) {
+    if (options.historical) return;
     if (!runtime.mayor.tasks.some((task) => task.nodeId === nodeId)) {
       runtime.mayor.tasks.push({ nodeId, kind, expiresAt: now + lifetime });
       runtime.mayor.tasks = runtime.mayor.tasks.slice(-16);
@@ -82,10 +84,10 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     let record = world.residents.find((item) => item.twitchUserId === user.twitchUserId);
     if (!record) {
       record = { ...user, id: `${world.id}:resident:${user.twitchUserId}`, isFollower: false, isSubscriber: false,
-        subscriptionMonths: 0, houseId: null, housingStatus: "none" };
+        subscriptionMonths: 0, houseId: null, housingStatus: "none", ...(options.historical ? { established: true } : {}) };
       world.residents.push(record);
       const node = world.layout.navigation.find((node) => node.id === "hall")!;
-      if (runtime.residentActors.length < MAX_RESIDENT_ACTORS) runtime.residentActors.push({ residentId: record.id,
+      if (!options.historical && runtime.residentActors.length < MAX_RESIDENT_ACTORS) runtime.residentActors.push({ residentId: record.id,
         actor: { position: { x: node.x, y: node.y }, nodeId: node.id, targetNodeId: null, previousNodeId: null, restUntil: now, steps: world.residents.length } });
       outcome.residentIds.push(record.id);
     } else record.displayName = user.displayName;
@@ -143,7 +145,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     }
     case "NEW_FOLLOWER": {
       const record = resident(event.user);
-      if (!record.isFollower) { record.isFollower = true; effect("arrival", `Welcome, ${event.user.displayName}!`); }
+      if (!record.isFollower) { record.isFollower = true; if (outcome.residentIds.includes(record.id)) effect("arrival", `Welcome, ${event.user.displayName}!`); }
       outcome.message = `${event.user.displayName} is a follower resident. No subscriber house added.`;
       break;
     }

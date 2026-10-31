@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { cookieNames, cookieOptions } from "../auth/config";
 import { safeEqual } from "../auth/crypto";
-import { AuthError, isAuthError, CHAT_SCOPE, SUBSCRIPTION_SCOPE, STATE_TTL_MS } from "../auth/types";
+import { AuthError, isAuthError, COMMUNITY_SCOPES, SUBSCRIPTION_SCOPE, STATE_TTL_MS } from "../auth/types";
 import { authMessages } from "../auth/messages";
 import type { AuthService } from "../auth/service";
 import type { ChatManager } from "../chat/manager";
@@ -41,7 +41,7 @@ export function createHousingHandlers(authService: () => AuthService, housing: (
         const { action } = parseInput(z.object({ action: z.enum(["authorize", "sync", "connect", "disconnect"]) }).strict(), await readTownInput(request));
         if (!await persistence().mine(grant.profile)) throw new HousingError("not_found");
         if (action === "authorize") {
-          const login = auth.beginLogin(request.cookies.get(names.state)?.value, grant.profile.twitchUserId, [SUBSCRIPTION_SCOPE, ...grant.scopes.filter((scope) => scope === CHAT_SCOPE)]);
+          const login = auth.beginLogin(request.cookies.get(names.state)?.value, grant.profile.twitchUserId, [SUBSCRIPTION_SCOPE, ...grant.scopes.filter((scope) => COMMUNITY_SCOPES.includes(scope))]);
           const result = response({ location: login.location }); result.cookies.set(names.state, login.binding, cookieOptions(production, STATE_TTL_MS / 1000)); return result;
         }
         if (!grant.scopes.includes(SUBSCRIPTION_SCOPE)) throw new AuthError("subscription_scope");

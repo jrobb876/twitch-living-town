@@ -3,7 +3,7 @@ import type { TownSession, TownWorld } from "./types";
 // One actor per recorded resident through 256; larger populations use a district-balanced sample.
 export const MAX_RESIDENT_ACTORS = 256;
 type ResidentActors = TownSession["runtime"]["residentActors"];
-export type ResidentSource = { id: string; nodeId: string; districtId: string };
+export type ResidentSource = { id: string; nodeId: string; districtId: string; established?: boolean };
 
 function identityHash(seed: number, id: string) {
   for (const char of id) seed = (Math.imul(seed, 31) + char.charCodeAt(0)) >>> 0;
@@ -22,7 +22,7 @@ export function residentSources(world: TownWorld): ResidentSource[] {
     seen.add(resident.id);
     const hash = identityHash(world.seed, resident.id);
     const plot = (resident.houseId && plots.get(resident.houseId)) || fallback[hash % fallback.length];
-    sources.push({ id: resident.id, nodeId: plot?.entranceNodeId ?? "1-2", districtId: plot?.districtId ?? "civic" });
+    sources.push({ id: resident.id, nodeId: plot?.entranceNodeId ?? "1-2", districtId: plot?.districtId ?? "civic", ...(resident.established ? { established: true } : {}) });
   }
   if (sources.length <= MAX_RESIDENT_ACTORS) return sources;
   const groups = new Map<string, ResidentSource[]>();
@@ -51,7 +51,7 @@ export function reconcileResidentSources(world: TownWorld, now: number, sources:
     const retained = existing.get(source.id);
     if (retained && nodes.has(retained.actor.nodeId) && (!retained.actor.targetNodeId || nodes.has(retained.actor.targetNodeId))) result.push(retained);
     else {
-      const node = known && !known.has(source.id) ? nodes.get("hall")! : nodes.get(source.nodeId)!;
+      const node = known && !known.has(source.id) && !source.established ? nodes.get("hall")! : nodes.get(source.nodeId)!;
       result.push({ residentId: source.id, actor: { position: { x: node.x, y: node.y }, nodeId: node.id,
         targetNodeId: null, previousNodeId: null, restUntil: now, steps: identityHash(world.seed, source.id) } });
     }

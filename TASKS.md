@@ -1,5 +1,18 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 018 — Community Import and live follower integration
+
+- [x] Inspect and reuse OAuth/session protection, subscriber synchronization, persistent CAS/event receipts, shared EventSub and onboarding.
+- [x] Add `moderator:read:followers`, same-account scope upgrades, paginated authenticated follower identities, bounded retries/rate-limit handling and explicit incomplete results.
+- [x] Persist import phase/counts/error/lease in the existing world JSON; checkpoint, prevent duplicate claims, retain saved members on interruption and retry idempotently. No new migration required.
+- [x] Reuse subscriber reconciliation and existing-house-first expansion; preserve customized homes, town/Mayor and cross-town identity isolation.
+- [x] Add optional onboarding/management Community Import UI, counts, progress/loading, permission recovery, Retry and independent live-follow controls.
+- [x] Register/verify `channel.follow` v2 on the shared socket; durable dedup and existing newcomer behavior only for genuinely new residents. Historical imports settle quietly in Overview and OBS.
+- [x] Add focused synthetic API/socket/HTTP and disposable PostgreSQL regressions for empty/follower/subscriber/overlap cases, 205 paged followers, expansion, duplicate requests/deliveries, leases/restarts, failures, permissions and preserved customizations.
+- [x] Final TypeScript, lint, all 244 tests (zero failures/skips), production build and tracked/new-file Git diff whitespace checks passed. Fourteen regressions added; tests use synthetic Twitch responses and the existing disposable local PostgreSQL fixtures, never live Supabase. The successful-commit outcome is now returned for accurate new-house counts; unsupported subscriber access retains its specific error category.
+- [ ] Manual real Twitch import/follow and 1920×1080 OBS checks in README. Live Twitch and live Supabase behavior has not been verified by this task; no browser automation, live migrations, commits, pushes or deployment.
+- [ ] Future: durable follow delivery queue, distributed workers, resumable cursors/batched storage for channels beyond the current bounded full-world importer.
+
 ## Prompt 017C — Adaptive density and large-town rendering
 
 - [x] Audit before editing: global oldest-24 creation/simulation cap in Overview/previews; separate four-ambient production OBS fallback; no resident viewport culling; same rules in both OBS modes.
