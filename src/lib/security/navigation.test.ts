@@ -97,7 +97,8 @@ test("interactive Overview begins with the saved town rather than flashing a gen
   const world = publicSampleTown(); world.name = "Saved community town"; world.id = "saved-town-fixture";
   const html = renderToStaticMarkup(createElement(TownExperience, { initialTown: { world, revision: 1, updatedAt: "2026-10-30" }, enableSimulator: false }));
   assert.match(html, /Welcome to Saved community town/);
-  assert.match(html, /class="primary-button regenerate" disabled=""/);
+  assert.ok(!html.includes("Regenerate town")); assert.ok(!html.includes("Regenerate demo town"));
+  assert.ok(!html.includes("Reload saved town")); assert.match(html, /Manage My Town/);
   assert.ok(!html.includes("Welcome to Willowbrook")); assert.ok(!html.includes("Event simulator"));
   assert.match(html, /Your town/); assert.match(html, /Twitch chat/);
 });

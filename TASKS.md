@@ -1,5 +1,14 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 016B — Simplify Town Overview controls
+
+- [x] Trace reload (authenticated GET only) and regeneration (new in-memory demo seed/remount, no persistence mutation).
+- [x] Remove routine reload from Overview; preserve mount/focus/town-event refresh and add contextual abortable Retry for loading failures, retaining the last saved town on temporary errors.
+- [x] Keep Manage My Town available from initial saved data. Move regeneration into an authorized simulated-view development section, with matching handler guards and no production exposure.
+- [x] Preserve Reset demo town, settings reload, subscriber synchronization, renderer/camera/Mayor and OBS operations elsewhere.
+- [x] Add read/retry/recovery/abort and UI visibility regressions; all 208 tests, TypeScript, lint, production build and tracked/new-file Git diff checks passed.
+- [ ] Manual Chrome checks for failure/retry and development demo regeneration; no browser automation, live database changes, commit, push or deployment.
+
 ## Prompt 016 — Public home, navigation and UX consolidation
 
 - [x] Preserve and relocate the original interactive TownExperience at `/town-overview`; initialize authorized owners from their saved world and retain camera/Mayor/Twitch/demo wiring. Update scope-upgrade returns and expanded-demo reset to the relocated route.

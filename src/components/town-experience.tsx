@@ -77,6 +77,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
   const persistentView = mode === "live" && world.id === savedTown?.world.id;
   const mayorStatus = { idle: "Enjoying a peaceful moment", wandering: "On a little neighborhood stroll", approaching: "On the way to welcome a neighbor", celebrating: "Celebrating with a neighbor!", welcoming: "Welcoming visitors at Town Hall!" }[runtime.mayor.behavior];
   function regenerate() {
+    if (process.env.NODE_ENV !== "development" || !enableSimulator || mode !== "simulated") return;
     const value = crypto.getRandomValues(new Uint32Array(1))[0];
     onRegenerate(value === seed ? (seed + 1) >>> 0 : value);
   }
@@ -85,9 +86,8 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
       <main>
         <section className="town-heading" aria-labelledby="town-title">
           <div><div className="eyebrow">A COMMUNITY IN BLOOM <span>✿</span></div><h1 id="town-title">Welcome to {world.name}<span>.</span></h1><p>A cozy little world. A place for everyone. One very small Mayor.</p></div>
-          <button className="primary-button regenerate" disabled={persistentView || !enableSimulator} title={persistentView ? "Saved layouts stay fixed. Switch to the simulated town to regenerate the demo." : undefined} onClick={regenerate}><span aria-hidden="true">⟳</span> Regenerate town</button>
         </section>
-        <PersistentTown onTown={onTown} />
+        <PersistentTown onTown={onTown} initialTown={savedTown} />
         <SubscriberHousing onPresentation={receivePresentation} />
         <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} showSourceControls={enableSimulator} />
         <section className="town-layout" aria-label="Village prototype">
@@ -122,6 +122,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
             <section className="future-note"><span aria-hidden="true">✿</span><div><h3>A town that grows with you</h3><p>Today, a first village. Soon, a home for your Twitch community.</p><span className="local-label">{persistentView ? "PERSISTENT TOWN · LIVE CHAT SOURCE" : mode === "live" ? "LIVE CHAT PREVIEW · NOT SAVED" : "SIMULATED DEMO · LOCAL EVENTS"}</span></div></section>
           </aside>
         </section>
+        {process.env.NODE_ENV === "development" && enableSimulator && mode === "simulated" && <details className="event-simulator"><summary>Development tools · simulated town</summary><p>Generate a new local demo layout. This does not save or change your community’s town.</p><button className="account-button" type="button" onClick={regenerate}>Regenerate demo town</button></details>}
         {enableSimulator && mode === "simulated" && <EventSimulator state={demoSession} onEvent={sendEvent} onReset={onReset} />}
         <footer className="page-footer"><span><span className="footer-leaf">❧</span> Every community deserves a place to call home.</span><span>Twitch Living Town <b>/</b> Foundation & first village</span></footer>
       </main>

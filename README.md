@@ -8,6 +8,18 @@ A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-i
 
 ## Run locally
 
+### Simplified Overview controls (Prompt 016B)
+
+The standard `/town-overview` keeps **Manage My Town**, without routine **Reload saved town** or **Regenerate town** buttons. Saved data still loads on the server and refreshes automatically through the existing authenticated `GET /api/town` on client mount, window focus and `living-town:reload` events. A failed client load shows contextual **Retry** using that same abortable read path; it disables itself while retrying and disappears after success. Transient failures retain the last known town. Authentication failures still clear the client town. Initial server-load failures retain the existing Try again link.
+
+Before this change, Reload saved town simply invoked that same read; it did not regenerate or save anything. Regenerate town chose a different cryptographic random seed and remounted the in-memory demo scene. It did not call a persistence mutation, but its disabled production button was confusing and its local action discarded the demo session's state. It now appears as **Regenerate demo town** only inside **Development tools · simulated town**, with all three conditions required: development runtime, server-authorized simulator, and simulated view. The handler repeats those guards. Production hides it even with explicit demo opt-in. Permanent houses/layouts have no write path through this control.
+
+Reset demo town in the event simulator still resets the current demo seed/session; management reloads, subscriber sync, renderer/camera controls and the isolated expanded OBS demo retain their separate behavior.
+
+Manual check: restart with `npm run build` then `npm start`, sign in and open `/town-overview`. Confirm the correct saved town and Manage My Town appear automatically, with neither routine control. In Chrome DevTools, temporarily block `/api/town` after the page has loaded and refocus the tab: expect a loading error plus Retry while the town stays visible. Unblock the request and click Retry; expect recovery and removal of Retry. Check Mayor/camera/chat as usual. Separately, in local development with the simulator authorized, select the simulated town and expand Development tools; regeneration should change only its demo seed/layout. Return to live view and confirm the saved town is unchanged. Do not confuse this with Reset demo town or settings reload.
+
+Files: `src/components/persistent-town.tsx`, `town-experience.tsx`; new `src/lib/persistence/town-loader.ts` and `town-loader.test.ts`; updated `src/lib/security/navigation.test.ts`, README and TASKS. No migrations, backend mutation changes or production-data modifications.
+
 ### Navigation and public home (Prompt 016)
 
 This section supersedes earlier instructions that used `/` for the interactive Overview or `/account?auth=signed_out` after logout.
