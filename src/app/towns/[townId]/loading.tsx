@@ -1,1 +1,2 @@
-export default function Loading() { return <main className="streamer-page"><p role="status">Opening this town’s gates…</p></main>; }
+import TownLoading from "@/components/town-loading";
+export default function Loading() { return <TownLoading message="Opening the neighborhood gates…" />; }

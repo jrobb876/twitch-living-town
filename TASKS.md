@@ -1,5 +1,16 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 016 — Public home, navigation and UX consolidation
+
+- [x] Preserve and relocate the original interactive TownExperience at `/town-overview`; initialize authorized owners from their saved world and retain camera/Mayor/Twitch/demo wiring. Update scope-upgrade returns and expanded-demo reset to the relocated route.
+- [x] Add a public, authentication-aware welcome page with an isolated fictional renderer preview and explanation; no private account/world or simulator access from the landing preview.
+- [x] Share account polling and responsive primary navigation; exclude OBS and isolated expanded preview from website chrome/auth polling. Simplify dashboard actions and retain contextual property breadcrumbs.
+- [x] Group existing management forms into linked Town & Mayor, Community and Stream Display sections, retaining drafts and existing #settings/#obs links. Enlarge visitor viewport.
+- [x] Add shared CSS/SVG Mayor loaders, accessible status messages, reduced-motion handling, compact pending states, error recovery and lightweight page fades.
+- [x] Navigate home only after successful server-side logout; preserve origin/CSRF/persistence checks and failure behavior.
+- [x] Lint, TypeScript, all 204 tests, production build and Git diff checks passed. Added seven navigation/loading/Overview regressions; existing authentication, housing, camera, expansion and OBS suites remain green. One redirected test launch failed in the Windows sandbox before execution; the permitted full-suite retry passed.
+- [ ] Manual Chrome desktop/tablet/mobile, keyboard, reduced-motion, saved/live town and OBS checks using README. No browser automation, live database changes, migrations, scopes, OBS credential changes, commit, push or deployment.
+
 ## Prompt 015 — Unified dashboard and login navigation
 
 - [x] Resume partial hub/OAuth work; preserve existing management controls at `/dashboard/town` and default basic login to `/dashboard` only after persisted success.

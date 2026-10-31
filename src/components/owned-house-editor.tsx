@@ -1,4 +1,5 @@
 "use client";
+import TownLoading from "./town-loading";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { PropertyView } from "@/lib/houses/customization";
@@ -17,7 +18,7 @@ export default function OwnedHouseEditor({ townId, houseId }: { townId: string; 
   }, [endpoint, attempt]);
   const reload = () => { setLoaded(null); setError(""); setAttempt((i) => i + 1); };
   if (error) return <section className="house-empty"><p role="alert">{error}</p><Link className="account-button" href="/account">Your Twitch account</Link> <button className="account-button" onClick={reload}>Retry</button></section>;
-  if (!loaded) return <p role="status">Opening your garden gate…</p>;
+  if (!loaded) return <TownLoading message="Opening your cottage…" />;
   return <HouseEditor key={`${endpoint}:${attempt}`} initial={loaded.property} onReload={reload} onSave={async (exterior, revision) => {
     const response = await fetch(endpoint, { method: "PATCH", headers: { "Content-Type": "application/json", "X-CSRF-Token": loaded.csrfToken }, body: JSON.stringify({ revision, exterior }) });
     const data = await response.json();

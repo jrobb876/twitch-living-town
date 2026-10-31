@@ -21,7 +21,7 @@ export default async function StreamerPage({ destination }: { destination: "/das
     if (isPersistenceError(error)) message = persistenceMessages[error.code];
   }
   if (signIn) redirect("/account");
-  if (!access) return <main className="account-page"><h1>Your town is resting</h1><p role="alert">{message}</p><Link href={destination}>Try again</Link> · <Link href="/">Town Overview</Link></main>;
+  if (!access) return <main className="account-page"><h1>Your town is resting</h1><p role="alert">{message}</p><Link href={destination}>Try again</Link> · <Link href="/town-overview">Town Overview</Link></main>;
   if (access.destination !== destination) redirect(access.destination);
   return <StreamerWorkspace initialTown={access.town} csrfToken={access.csrfToken} />;
 }

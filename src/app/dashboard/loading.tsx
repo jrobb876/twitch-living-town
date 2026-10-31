@@ -1,1 +1,2 @@
-export default function Loading() { return <main className="streamer-page"><p role="status">Finding your town and community homes…</p></main>; }
+import TownLoading from "@/components/town-loading";
+export default function Loading() { return <TownLoading message="Finding your town and community homes…" />; }

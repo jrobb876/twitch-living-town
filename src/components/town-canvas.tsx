@@ -1,4 +1,5 @@
 "use client";
+import TownLoading from "./town-loading";
 
 import { useEffect, useRef, useState } from "react";
 import type { TownSession } from "@/lib/simulation/types";
@@ -33,7 +34,7 @@ export default function TownCanvas({ session }: { session: TownSession }) {
   return (
     <>
       <div ref={host} className="canvas-host" tabIndex={0} role="region" aria-label={`${housesIn(session.world).length} home village. Drag to pan, scroll to zoom. Keyboard: arrow keys to pan, plus or minus to zoom, zero to fit.`} />
-      {status === "loading" && <div className="canvas-message" role="status"><span className="loading-sprout">✿</span>Growing your little corner of the world…</div>}
+      {status === "loading" && <div className="canvas-message"><TownLoading compact /></div>}
       {status === "error" && <div className="canvas-message" role="alert"><strong>The village couldn’t open.</strong><p>A browser with WebGL and hardware acceleration is needed.</p><button className="primary-button" onClick={() => { setStatus("loading"); setAttempt((n) => n + 1); }}>Try again</button></div>}
       <div className="camera-controls" aria-label="Camera controls">
         <button title="Zoom in (+)" aria-label="Zoom in" disabled={status !== "ready"} onClick={() => renderer.current?.zoom(1.2)}>+</button>

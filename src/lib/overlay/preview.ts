@@ -5,7 +5,7 @@ import { colors, customizeHouse } from "../houses/customization";
 
 export const previewCounts = [25, 50, 100, 200] as const;
 export const PREVIEW_ID = "demo-obs-preview";
-export const PREVIEW_RESET_PATH = "/";
+export const PREVIEW_RESET_PATH = "/town-overview";
 export function previewEnabled(env: Record<string, string | undefined>, host: string | null) {
   return env.NODE_ENV === "development" && env.TOWN_DEMO_MODE === "true" && env.PUBLIC_DEPLOYMENT !== "true"
     && /^(localhost|127\.0\.0\.1)(:[0-9]{1,5})?$/.test(host ?? "");

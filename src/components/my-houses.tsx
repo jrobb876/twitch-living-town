@@ -1,4 +1,5 @@
 "use client";
+import TownLoading from "./town-loading";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { PropertyView } from "@/lib/houses/customization";
@@ -15,6 +16,6 @@ export default function MyHouses() {
     return () => controller.abort();
   }, [attempt]);
   if (error) return <section className="house-empty"><h2>Your homes are safe</h2><p role="alert">{error}</p><Link className="account-button" href="/account">Your Twitch account</Link> <button className="account-button" onClick={() => { setError(""); setAttempt((i) => i + 1); }}>Retry</button></section>;
-  if (!houses) return <p role="status">Finding your little corners of the world…</p>;
+  if (!houses) return <TownLoading message="Finding your homes…" />;
   return <PropertyCards houses={houses} />;
 }

@@ -26,7 +26,7 @@ export default function PersistentTown({ onTown }: { onTown: (town: StoredTown |
     <div className="chat-connection-title"><strong>Your town</strong><span className="chat-mode">{state?.town ? "SAVED IN SUPABASE" : "DEMO IS SEPARATE"}</span></div>
     {!state ? <p role="status">Checking your town…</p> : state.error ? <p role="status">{state.message} <Link href="/account">Your Twitch account</Link></p> : <>
       <p>{state.town ? `Saved town: ${state.town.world.name}. Mayor ${state.town.world.mayor.name}. Your homes and streets are kept across visits.` : "A place for your community is waiting. Creating a town is optional; signing in never creates one automatically."}</p>
-      <Link className="account-button" href={state.town ? "/dashboard" : "/onboarding"}>{state.town ? "Open Streamer Dashboard" : "Create my town"}</Link>
+      <Link className="account-button" href={state.town ? "/dashboard/town" : "/onboarding"}>{state.town ? "Manage My Town" : "Create my town"}</Link>
     </>}
     <button className="account-button" type="button" onClick={refresh}>Reload saved town</button>
     <p className="chat-note">Demo regeneration and simulated events never write to your saved town.</p>

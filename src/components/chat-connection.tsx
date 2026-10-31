@@ -26,7 +26,7 @@ export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown 
           setStatusError(data.error === "unauthorized" ? null : authMessages[data.error] ?? authMessages.unavailable);
         } else { setStatusError(null); setSnapshot(data); onSnapshot(data); }
       } catch {
-        if (!controller.signal.aborted) { setStatusError("Connection status is unavailable. Showing the simulated town until you select the live view again."); setSnapshot(null); onSnapshot(null); }
+        if (!controller.signal.aborted) { setStatusError("Connection status is unavailable. Your saved town is retained; live activity will resume when the connection recovers."); setSnapshot(null); onSnapshot(null); }
       } finally { inFlight = false; }
     }
     void poll();

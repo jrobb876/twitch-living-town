@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { defaultDisplay, type DisplaySettings } from "@/lib/overlay/model";
+import TownLoading from "./town-loading";
 
 export default function ObsSettings({ townId, csrfToken }: { townId: string; csrfToken: string }) {
   const [draft, setDraft] = useState(defaultDisplay), [ready, setReady] = useState(false), [enabled, setEnabled] = useState(false);
@@ -33,13 +34,14 @@ export default function ObsSettings({ townId, csrfToken }: { townId: string; csr
     finally { setBusy(false); }
   }
   const change = (patch: Partial<DisplaySettings>) => setDraft((current) => ({ ...current, ...patch }));
-  return <section className="workspace-card"><h2>OBS & Stream Display</h2><p>Bring your saved town to stream. Live activity follows the connections above, even after closing this dashboard.</p>
+  if (!ready) return message ? <div className="workspace-card"><p role="alert">{message}</p><a className="account-button" href="/dashboard/town#obs">Reload display settings</a></div> : <TownLoading compact message="Preparing your stream view…" />;
+  return <section className="workspace-card"><h3>OBS presentation</h3><p>Bring your saved town to stream. Live activity follows your Community connections, even after closing this dashboard.</p>
     <form onSubmit={(e) => { e.preventDefault(); void act("save"); }}><fieldset disabled={!ready || busy} className="workspace-form">
       <label className="workspace-field">Display mode<select value={draft.mode} onChange={(e) => change({ mode: e.target.value as DisplaySettings["mode"] })}><option value="living-town">Living Town · follow the Mayor</option><option value="spotlight">Mayor Spotlight</option></select></label>
       {draft.mode === "spotlight" && <div className="obs-options"><label className="workspace-field">Mayor position<select value={draft.side} onChange={(e) => change({ side: e.target.value as DisplaySettings["side"] })}><option value="left">Left</option><option value="right">Right</option></select></label>
         <label className="workspace-field">Background<select value={draft.background} onChange={(e) => change({ background: e.target.value as DisplaySettings["background"] })}><option value="town">Full saved town</option><option value="transparent">Transparent · Mayor only</option></select></label>
         <label className="workspace-field">Mayor scale · {draft.scale.toFixed(1)}×<input type="range" min="0.5" max="1.5" step="0.1" value={draft.scale} onChange={(e) => change({ scale: Number(e.target.value) })} /></label></div>}
-      <div className="workspace-actions"><button className="primary-button" type="submit">Save display preferences</button><button className="account-button" type="button" onClick={() => void act("rotate")}>{enabled ? "Regenerate OBS access" : "Generate OBS URL"}</button><button className="account-button" type="button" disabled={!enabled} onClick={() => void act("revoke")}>Revoke access</button></div>
+      <div className="workspace-actions"><button className="primary-button" type="submit">{busy ? "Updating display…" : "Save display preferences"}</button><button className="account-button" type="button" onClick={() => void act("rotate")}>{enabled ? "Regenerate OBS access" : "Generate OBS URL"}</button><button className="account-button" type="button" disabled={!enabled} onClick={() => void act("revoke")}>Revoke access</button></div>
     </fieldset></form>
     {url && <div className="workspace-actions"><a className="account-button" href={url} target="_blank" rel="noopener noreferrer">Preview OBS Display</a><button className="primary-button" onClick={async () => { try { await navigator.clipboard.writeText(url); setMessage("OBS Browser Source URL copied."); } catch { setMessage("Clipboard unavailable. Copy the private URL from the field below."); } }}>Copy OBS Browser Source URL</button><label className="workspace-field obs-url">Private Browser Source URL<input readOnly type="password" value={url} autoComplete="off" onFocus={(e) => e.target.select()} /></label></div>}
     <p className="workspace-help">Access: {enabled ? "enabled" : "disabled"}. The URL permits display only; keep it private. After reloading this page, regenerate access to obtain a new URL. Save preferences before previewing. Use 1920 × 1080 in OBS.</p>

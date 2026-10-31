@@ -70,7 +70,7 @@ test("real OAuth helper and callback compose correctly for basic and chat logins
     const response = await createAuthHandlers(() => service, false).callback(new NextRequest(`${config.redirectUri}?state=${state}&code=synthetic-code`, {
       headers: { Cookie: `${cookieNames(false).state}=${login.binding}` },
     }));
-    assert.equal(response.headers.get("location"), chat ? "/?chat=authorized" : "/dashboard");
+    assert.equal(response.headers.get("location"), chat ? "/town-overview?chat=authorized" : "/dashboard");
     const id = response.cookies.get(cookieNames(false).session)!.value;
     assert.equal((await service.chatSession(id)).authorized, chat);
     assert.equal(new URLSearchParams(String(requests[0].options.body)).get("redirect_uri"), location.searchParams.get("redirect_uri"));

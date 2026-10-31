@@ -1,4 +1,4 @@
-import Link from "next/link";
+
 import TwitchAccount from "@/components/twitch-account";
 import { authMessages } from "@/lib/auth/messages";
 
@@ -8,7 +8,6 @@ export default async function AccountPage({ searchParams }: { searchParams: Prom
   const { auth } = await searchParams;
   const message = typeof auth === "string" && Object.hasOwn(authMessages, auth) ? authMessages[auth] : null;
   return <main className="account-page">
-    <nav className="houses-nav"><Link href="/dashboard">← Dashboard</Link><Link href="/">Town Overview</Link></nav>
     <div className="eyebrow">LIVING TOWN · TWITCH ACCOUNT</div>
     {message && <p className="account-notice" role="status">{message}</p>}
     <TwitchAccount detailed />

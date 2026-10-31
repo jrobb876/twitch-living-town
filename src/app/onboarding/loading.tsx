@@ -1,1 +1,2 @@
-export default function Loading() { return <main className="account-page" role="status">Checking your town before we begin…</main>; }
+import TownLoading from "@/components/town-loading";
+export default function Loading() { return <TownLoading message="Welcoming you to Living Town…" />; }

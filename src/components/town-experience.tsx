@@ -1,12 +1,12 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createWorld, createSession, giftCount, housesIn } from "@/lib/simulation/world";
 import { processEvent, tickTown } from "@/lib/simulation/engine";
 import type { TownEvent } from "@/lib/simulation/types";
-import TwitchAccount from "./twitch-account";
+import TownLoading from "./town-loading";
 import ChatConnection from "./chat-connection";
 import { createLiveView, projectLiveActivity } from "@/lib/chat/projection";
 import type { ChatSnapshot } from "@/lib/chat/types";
@@ -19,15 +19,15 @@ import MayorPortrait from "./mayor-portrait";
 
 const EventSimulator = dynamic(() => import("./event-simulator"), { ssr: false });
 
-const TownCanvas = dynamic(() => import("./town-canvas"), { ssr: false, loading: () => <div className="canvas-message">Opening the village gates…</div> });
+const TownCanvas = dynamic(() => import("./town-canvas"), { ssr: false, loading: () => <div className="canvas-message"><TownLoading compact /></div> });
 const townName = process.env.NEXT_PUBLIC_TOWN_NAME || "Willowbrook";
 const mayorName = process.env.NEXT_PUBLIC_MAYOR_NAME || "Mochi";
 
-export default function TownExperience({ enableSimulator = false }: { enableSimulator?: boolean }) {
+export default function TownExperience({ enableSimulator = false, initialTown = null }: { enableSimulator?: boolean; initialTown?: StoredTown | null }) {
   const [generation, setGeneration] = useState({ seed: 20261027, revision: 0 });
-  const [mode, setMode] = useState<"live" | "simulated">("simulated");
-  const [savedTown, setSavedTown] = useState<StoredTown | null>(null);
-  const selectedTown = useRef<string | null>(null);
+  const [mode, setMode] = useState<"live" | "simulated">(initialTown ? "live" : "simulated");
+  const [savedTown, setSavedTown] = useState<StoredTown | null>(initialTown);
+  const selectedTown = useRef<string | null>(initialTown?.world.id ?? null);
   const receiveTown = useCallback((town: StoredTown | null) => {
     setSavedTown(town);
     if (town && selectedTown.current !== town.world.id) setMode("live");
@@ -41,7 +41,7 @@ export default function TownExperience({ enableSimulator = false }: { enableSimu
 
 function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRegenerate, savedTown, onTown }: { seed: number; enableSimulator: boolean; mode: "live" | "simulated"; setMode: (mode: "live" | "simulated") => void; onReset: () => void; onRegenerate: (seed: number) => void; savedTown: StoredTown | null; onTown: (town: StoredTown | null) => void }) {
   const [demoSession, setSession] = useState(() => createSession(createWorld({ id: "demo-willowbrook", streamerTwitchUserId: "sim-streamer", seed, name: townName, mayorName })));
-  const [liveSession, setLiveSession] = useState<TownSession | null>(null);
+  const [liveSession, setLiveSession] = useState<TownSession | null>(() => savedTown ? createSession(savedTown.world) : null);
   const receivePresentation = useCallback((presentation: HousingPresentation) => {
     setLiveSession((current) => {
       if (!current || current.world.id !== presentation.townId) return current;
@@ -53,7 +53,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
     });
   }, []);
   const receiveSnapshot = useCallback((snapshot: ChatSnapshot | null) => {
-    if (!snapshot) { setLiveSession(null); setMode("simulated"); return; }
+    if (!snapshot) { setLiveSession((current) => savedTown ? current?.world.id === savedTown.world.id ? { ...current, world: savedTown.world } : createSession(savedTown.world) : null); if (!savedTown) setMode("simulated"); return; }
     const saved = savedTown?.world.streamerTwitchUserId === snapshot.channel.twitchUserId ? savedTown.world : undefined;
     const target = saved?.id ?? snapshot.townId;
     setLiveSession((current) => {
@@ -82,19 +82,14 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
   }
   return (
     <div className="app-shell">
-      <header className="site-header">
-        <Link href="/" className="brand" aria-label="Twitch Living Town home"><span className="brand-mark">⌂<i>✦</i></span><span>living town<span className="brand-subtitle">A LITTLE PLACE TO BELONG</span></span></Link>
-        <TwitchAccount />
-        <span className="prototype-tag">TWITCHCON HACKATHON <span>·</span> TOWN OVERVIEW</span>
-      </header>
       <main>
         <section className="town-heading" aria-labelledby="town-title">
           <div><div className="eyebrow">A COMMUNITY IN BLOOM <span>✿</span></div><h1 id="town-title">Welcome to {world.name}<span>.</span></h1><p>A cozy little world. A place for everyone. One very small Mayor.</p></div>
-          <button className="primary-button regenerate" disabled={persistentView} title={persistentView ? "Saved layouts stay fixed. Switch to the simulated town to regenerate the demo." : undefined} onClick={regenerate}><span aria-hidden="true">⟳</span> Regenerate town</button>
+          <button className="primary-button regenerate" disabled={persistentView || !enableSimulator} title={persistentView ? "Saved layouts stay fixed. Switch to the simulated town to regenerate the demo." : undefined} onClick={regenerate}><span aria-hidden="true">⟳</span> Regenerate town</button>
         </section>
         <PersistentTown onTown={onTown} />
         <SubscriberHousing onPresentation={receivePresentation} />
-        <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} />
+        <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} showSourceControls={enableSimulator} />
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">
             <div className="map-topline"><span className="map-badge"><span className="green-dot" />{world.name} <span className="badge-divider">/</span> Town view</span><span className="weather"><span>☀</span> A lovely day to wander</span></div>

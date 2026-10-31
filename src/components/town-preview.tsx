@@ -1,10 +1,11 @@
 "use client";
+import TownLoading from "./town-loading";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
 import { createSession } from "@/lib/simulation/world";
 import { tickTown } from "@/lib/simulation/engine";
 import type { TownWorld } from "@/lib/simulation/types";
-const TownCanvas = dynamic(() => import("./town-canvas"), { ssr: false, loading: () => <p className="canvas-message">Opening the village gates…</p> });
+const TownCanvas = dynamic(() => import("./town-canvas"), { ssr: false, loading: () => <div className="canvas-message"><TownLoading compact /></div> });
 export default function TownPreview({ world }: { world: TownWorld }) {
   const [runtime, setRuntime] = useState(() => createSession(world).runtime);
   useEffect(() => {

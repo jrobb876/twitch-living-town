@@ -66,7 +66,7 @@ test("preview mode switching reuses resources; reset destroys its timer/renderer
   const owner = startPreview(world, defaultDisplay, async () => { constructions++; return renderer; }, (tick) => { ticks = tick; return () => { stopped++; }; }, () => now);
   await owner.ready; owner.setDisplay({ ...defaultDisplay, mode: "spotlight" });
   now = 2000; ticks(); assert.equal(updated?.world, world, "ticks retain geometry instead of regenerating");
-  assert.equal(constructions, 1); assert.equal(owner.reset(), "/"); owner.destroy();
+  assert.equal(constructions, 1); assert.equal(owner.reset(), "/town-overview"); owner.destroy();
   assert.equal(destroyed, 1); assert.equal(stopped, 1); assert.deepEqual(saved, original);
   assert.throws(() => startPreview(saved, defaultDisplay, async () => renderer));
 });

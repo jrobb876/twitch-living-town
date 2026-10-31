@@ -144,7 +144,7 @@ test("logout requires same-origin POST form with session-bound CSRF before revoc
   }
   const response = await f.handlers.logout(f.request("/api/auth/logout", { [f.names.session]: a.id }, { method: "POST", headers, body: `csrfToken=${csrf}` }));
   assert.equal(response.status, 303);
-  assert.equal(response.headers.get("location"), "/account?auth=signed_out");
+  assert.equal(response.headers.get("location"), "/");
   assert.equal(response.cookies.get(f.names.session)?.maxAge, 0);
   assert.equal(await f.service.getProfile(a.id), null);
   assert.deepEqual(f.twitch.revocations, ["test-access"]);

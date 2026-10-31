@@ -8,6 +8,105 @@ A cozy, seeded 2D village for the Codex x TwitchCon Hackathon, with a renderer-i
 
 ## Run locally
 
+### Navigation and public home (Prompt 016)
+
+This section supersedes earlier instructions that used `/` for the interactive Overview or `/account?auth=signed_out` after logout.
+
+| Route | Purpose |
+| --- | --- |
+| `/` | Public welcome page, fictional read-only Meadowbrook preview, streamer/viewer explanation. Connect with Twitch becomes Go to Dashboard when signed in; browsing home never redirects you away. |
+| `/dashboard` | Personal hub with a direct Open Town Overview action, own-town summary and authorized houses across communities. |
+| `/town-overview` | The original interactive `TownExperience`, existing PixiJS renderer, Mayor, camera, saved-world loading and Twitch integrations. Normal production requires a signed-in owner; no-town users get onboarding/property links. Existing explicitly permitted local simulation remains isolated here. |
+| `/dashboard/town#settings` | Town & Mayor configuration and preview. |
+| `/dashboard/town#community` | Resident/capacity statistics, existing chat connection and subscriber housing/sync controls. |
+| `/dashboard/town#obs` | Stream Display / existing OBS configuration and URL management. |
+| `/my-houses` and `/my-houses/[townId]/[houseId]` | Existing owner-filtered property discovery and customization. |
+| `/towns/[townId]` | Read-only saved-town visit with a larger responsive viewport; not the interactive owner Overview. |
+| `/account` | Twitch identity, connection errors and account management. |
+
+One shared responsive website header provides Dashboard, Town Overview, My Town, My Houses and Account for signed-in users, with a current-section indicator and Sign out. The mobile Menu has keyboard focus, Escape handling and a skip link. My Town can open onboarding for accounts without a town. Deeper property/visit pages retain contextual navigation. OBS routes and the isolated expanded OBS preview do **not** mount this header or its authentication polling.
+
+Management uses three anchor-linked sections rather than unmounting tabs. Drafts and generated private OBS URLs stay mounted when moving between sections; explicit reload still discards drafts as labeled. Existing `#settings` and `#obs` links remain valid. The dashboard keeps navigation separate from secondary OBS/account utilities.
+
+The shared `TownLoading` uses the existing SVG Mayor with a gentle CSS bob and three pulsing dots, polite status announcements, contextual messages, full-page/compact variants and reduced-motion support. Dashboard, onboarding, properties, account, Overview, town visitor, renderer fallbacks and OBS settings reuse it. No artificial loading delay or animation dependency was added. Content fades briefly; camera/Mayor frames are not reanimated by page transitions.
+
+Basic OAuth still persists the session before going to `/dashboard`. Existing chat/subscriber scope-upgrade returns now point to `/town-overview?chat=authorized` or `?housing=authorized`. Successful acknowledged logout clears cookies/revokes the session before navigating to `/`; failure stays on the current page with an error. No scopes, CSRF checks, encryption or ownership rules changed.
+
+The landing preview uses a fixed fictional world and the existing read-only `TownPreview`, not `TownExperience`, the event simulator, a saved account, or a production OBS grant. No environment changes or migrations are required. The expanded OBS demo's Reset now returns to `/town-overview` to preserve its original destination.
+
+Manual Chrome checks (no automated browser interaction was performed):
+
+1. Stop any running local server; in `F:\Development\TwitchLivingTown`, run `npm run build`, then `npm start`. Open `http://localhost:3000/` signed out. Check the hero, sample Mayor/village, camera controls and Explore Living Town explanation; no simulator or private town should appear.
+2. Connect with Twitch and confirm `/dashboard`. Use Open Town Overview directly. Confirm the saved town, Mayor, pan/zoom and existing chat/subscriber controls; authorize a scope if intentionally testing it and confirm return to `/town-overview`. Visit `/` while signed in: the public page remains, with Go to Dashboard.
+3. Check accounts with no town, houses only, town only, or both. In normal production, signed-out Overview access requires connection and a signed-in no-town account receives Create My Town / My Houses choices. No placeholder property is allocated. Check each cross-town Visit and Customize link.
+4. Open `/dashboard/town#settings`, edit a field without saving, then use Community and Stream Display section links and return. The unsaved field must remain. Verify existing loaded settings; do not generate/regenerate/revoke a real OBS URL unless deliberately testing that action. Existing owner-only save/OBS authorization is unchanged.
+5. Check desktop (~1440px), tablet (~900px), and mobile (~390px) widths. Use keyboard Tab, Enter, mobile Menu and Escape; verify visible focus, active section, wrapped cards, usable Mayor selectors and no horizontal overflow. The visitor canvas should occupy most available vertical space.
+6. Use Chrome network throttling to inspect actual pending loaders on navigation/My Houses/OBS settings, then restore normal networking. Disconnect networking to confirm failures show retry/account guidance instead of an endless loader. Enable reduced motion in Chrome rendering preferences: decorative loading/page animations should stop. Rendering still requires WebGL.
+7. Sign out from the header or Account. Expect `/` only after success; reload `/dashboard` to verify login is required. Persistent-auth logout/restart and failure paths are covered by local automated tests. The browser should stay put and show an error if logout fails.
+8. Verify an existing OBS Browser Source has no website navigation or margins added. Stop production mode, then use the Prompt 012 instructions below to check local expanded preview, simulation isolation and Reset to `/town-overview`.
+
+Remaining limits: visitor/sample worlds do not show live chat; actual viewport/GPU behavior and Twitch/OBS interaction require the manual checks above. Existing broadcaster-session lifetime, optional name attribution, subscriber entitlement and single-process limits remain unchanged.
+
+Validation: TypeScript, lint, all **204 tests**, production build and tracked/new-file Git diff checks passed. Tests use synthetic services and disposable local databases, plus server-rendered UI/source contract checks; no browser, live Supabase, Twitch or OBS interaction was automated.
+
+Prompt 016 file map: new `src/components/{account-context,website-shell,public-home,home-action,town-loading}.tsx`, `src/app/town-overview/{page,loading}.tsx`, account/My Houses/property loading boundaries, `src/lib/security/navigation.ts` and its tests, and `src/lib/simulation/public-sample.ts`. Updates cover root layout/home, shared-account controls, dashboard/management/property/visitor navigation, Overview initialization, existing renderer loading fallbacks, OBS loading, styles, fixed OAuth/logout/demo-reset destinations and their regression tests. README and TASKS document the changes.
+
+<details>
+<summary>Prompt 016 created and modified files</summary>
+
+Created:
+
+- `src/app/account/loading.tsx`
+- `src/app/my-houses/[townId]/[houseId]/loading.tsx`
+- `src/app/my-houses/loading.tsx`
+- `src/app/town-overview/loading.tsx`
+- `src/app/town-overview/page.tsx`
+- `src/components/account-context.tsx`
+- `src/components/home-action.tsx`
+- `src/components/public-home.tsx`
+- `src/components/town-loading.tsx`
+- `src/components/website-shell.tsx`
+- `src/lib/security/navigation.test.ts`
+- `src/lib/security/navigation.ts`
+- `src/lib/simulation/public-sample.ts`
+
+Modified:
+
+- `README.md`
+- `TASKS.md`
+- `src/app/account/page.tsx`
+- `src/app/dashboard/loading.tsx`
+- `src/app/demo/house-editor/page.tsx`
+- `src/app/globals.css`
+- `src/app/layout.tsx`
+- `src/app/my-houses/[townId]/[houseId]/page.tsx`
+- `src/app/my-houses/page.tsx`
+- `src/app/onboarding/loading.tsx`
+- `src/app/page.tsx`
+- `src/app/towns/[townId]/loading.tsx`
+- `src/app/towns/[townId]/page.tsx`
+- `src/components/account-dashboard.tsx`
+- `src/components/chat-connection.tsx`
+- `src/components/my-houses.tsx`
+- `src/components/obs-settings.tsx`
+- `src/components/owned-house-editor.tsx`
+- `src/components/persistent-town.tsx`
+- `src/components/streamer-page.tsx`
+- `src/components/streamer-workspace.tsx`
+- `src/components/town-canvas.tsx`
+- `src/components/town-experience.tsx`
+- `src/components/town-preview.tsx`
+- `src/components/twitch-account.tsx`
+- `src/lib/auth/diagnostics.test.ts`
+- `src/lib/auth/http.test.ts`
+- `src/lib/auth/http.ts`
+- `src/lib/auth/logout-client.ts`
+- `src/lib/overlay/preview.test.ts`
+- `src/lib/overlay/preview.ts`
+- `src/lib/persistence/persistence.test.ts`
+
+</details>
+
 ### Unified dashboard (Prompt 015)
 
 Basic Twitch login now lands on `/dashboard` after session persistence succeeds. The hub shows My Town and all owned subscriber houses together, including empty/error states for either section. `/dashboard/town` retains the existing town/Mayor settings, chat and subscriber controls, and OBS settings (`#settings` / `#obs`). `/account` remains account management. Chat/subscriber scope upgrades retain their existing fixed Overview destinations; arbitrary `returnTo`, `returnUrl` and `next` parameters are unsupported and rejected at login.

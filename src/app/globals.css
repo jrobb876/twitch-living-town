@@ -239,3 +239,96 @@ h1 > span { color: #8caa70; }
   .account-dashboard .workspace-actions a { text-align: center; }
   .houses-page .house-grid { grid-template-columns: minmax(0, 1fr); }
 }
+
+
+/* Shared website shell. Presentation routes never mount this shell. */
+.website-header { display:flex; align-items:center; justify-content:space-between; gap:24px; min-height:92px; padding:16px 4.2%; border-bottom:1px solid var(--line); background:#fbfaf3; }
+.website-menu, .website-menu nav { display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
+.website-menu nav a { color:#546953; font-size:13px; padding:12px 3px; border-bottom:2px solid transparent; }
+.website-menu nav a[aria-current="page"] { color:#284d3a; border-bottom-color:#6b8e68; font-weight:700; }
+.website-header .brand { flex-shrink:0; }
+.nav-toggle { display:none; }
+.skip-link { position:fixed; top:-100px; left:16px; z-index:200; padding:12px; background:#fff; }
+.skip-link:focus { top:12px; }
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline:3px solid #57876f; outline-offset:4px; }
+.website-content { min-width:0; }
+.website-content > main { animation:page-arrive .22s ease-out; }
+@keyframes page-arrive { from { opacity:.65; } to { opacity:1; } }
+.website-header button, .website-header a, .management-sections a { min-height:44px; }
+.management-sections { display:flex; flex-wrap:wrap; gap:10px; padding:12px; margin:26px 0; border:1px solid #d9dfce; border-radius:16px; background:#f0f2e6; }
+.management-sections a { display:flex; align-items:center; padding:10px 20px; border-radius:10px; color:#355a43; font-weight:600; background:#fffdf5; }
+.management-sections a:hover { background:#e1ead8; }
+.management-section { scroll-margin-top:24px; margin-top:36px; }
+.management-section > h2 { font:30px Georgia,serif; color:#405b49; margin:18px 0; }
+.dashboard-utilities { font-size:13px; }
+.dashboard-utilities a { text-decoration:underline; text-underline-offset:4px; }
+.town-visit { max-width:1800px; }
+.town-visit .workspace-preview { height:calc(100svh - 260px); min-height:520px; max-height:none; }
+.town-visit .houses-nav { margin-bottom:18px; }
+
+/* A small CSS-animated Mayor, shared across pending states. */
+.town-loading { min-height:calc(100svh - 120px); width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:32px 20px; background:#faf9f0; text-align:center; color:#405b49; }
+.town-loading-compact { min-height:220px; padding:20px; border-radius:20px; }
+.loading-mayor { width:112px; animation:mayor-bob 2.6s ease-in-out infinite; }
+.town-loading-compact .loading-mayor { width:76px; }
+.town-loading p { font-size:16px; margin:0; max-width:32ch; }
+.loading-dots { display:flex; gap:8px; }
+.loading-dots i { width:7px; height:7px; border-radius:50%; background:#71956a; animation:loading-pulse 1.5s ease-in-out infinite; }
+.loading-dots i:nth-child(2) { animation-delay:.2s; } .loading-dots i:nth-child(3) { animation-delay:.4s; }
+@keyframes mayor-bob { 0%,100% { transform:translateY(0) rotate(-2deg); } 50% { transform:translateY(-5px) rotate(2deg); } }
+@keyframes loading-pulse { 0%,100% { opacity:.35; } 50% { opacity:1; } }
+
+/* Public home uses the existing portrait and read-only village renderer. */
+.public-home { max-width:1560px; padding:40px clamp(20px,4vw,64px) 0; }
+.home-hero { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.15fr); gap:40px; align-items:center; margin:20px 0 64px; }
+.hero-copy h1 { font:clamp(35px,4.3vw,62px)/1.08 Georgia,serif; letter-spacing:-1.5px; color:#345940; margin:22px 0; }
+.hero-copy h1 em { font-style:normal; color:#85936a; }
+.hero-copy > p { max-width:48ch; font-size:16px; line-height:1.8; color:#61705b; }
+.home-village { margin:0; min-width:0; }
+.home-village .workspace-preview { height:550px; min-height:380px; box-shadow:0 18px 50px #536b4520; }
+.home-village figcaption { font-size:12px; line-height:1.6; text-align:center; margin-top:16px; color:#73816a; }
+.hero-mayor { display:flex; align-items:center; gap:18px; margin-top:30px; font-size:12px; line-height:1.8; color:#68765c; }
+.hero-mayor svg { width:78px; flex-shrink:0; }
+.home-audiences { display:grid; grid-template-columns:1fr 1fr; gap:26px; }
+.home-audiences article { background:#f0f3e6; border:1px solid #dbe1cc; border-radius:24px; padding:36px; }
+.home-audiences article:nth-child(2) { background:#f6ede4; border-color:#e8dbcb; }
+.home-audiences article > span { font-size:30px; color:#78946a; }
+.public-home h2 { font:32px Georgia,serif; color:#3d5c44; margin:16px 0; }
+.public-home h3 { font-size:18px; color:#405b49; margin:15px 0; }
+.home-audiences p,.home-audiences li,.home-how p { font-size:14px; line-height:1.9; color:#66755d; }
+.home-audiences ul { padding-left:20px; list-style:disc; }
+.home-how { margin:70px 0; scroll-margin-top:25px; }
+.home-how ol { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:28px; padding:0; list-style:none; margin:32px 0; }
+.home-how li { border-top:2px solid #d8dfcc; padding-top:20px; }
+.home-how li > span { color:#a8ad8d; font:26px Georgia,serif; }
+.home-footer { border-top:1px solid var(--line); text-align:center; padding:30px 10px; color:#77856c; font-size:13px; }
+@media(max-width:1100px) {
+  .website-header { gap:14px; flex-wrap:wrap; }
+  .website-menu { width:100%; justify-content:space-between; }
+  .home-hero { gap:24px; }
+  .home-village .workspace-preview { height:460px; }
+}
+@media(max-width:760px) {
+  .website-header { min-height:78px; padding:14px 20px; }
+  .nav-toggle { display:block; }
+  .website-menu { display:none; align-items:stretch; }
+  .website-menu.is-open { display:flex; flex-direction:column; }
+  .website-menu nav { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .website-menu nav a { padding:12px; }
+  .website-menu .account-controls { justify-content:flex-start; }
+  .home-hero, .home-audiences, .home-how ol { grid-template-columns:minmax(0,1fr); }
+  .public-home { padding-top:22px; }
+  .home-hero { margin-bottom:36px; }
+  .home-village .workspace-preview { height:430px; min-height:360px; }
+  .home-audiences article { padding:26px; }
+  .management-sections { gap:6px; }
+  .management-sections a { padding:10px 12px; font-size:13px; }
+  .town-visit .workspace-preview { min-height:440px; height:calc(100svh - 220px); }
+  .town-loading { min-height:calc(100svh - 95px); }
+  .town-loading-compact { min-height:200px; }
+}
+@media(prefers-reduced-motion:reduce) {
+  .website-content > main, .loading-mayor, .loading-dots i { animation:none; }
+  .house-card, .account-button, .primary-button { transition:none; }
+  .house-card:hover { transform:none; }
+}

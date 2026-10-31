@@ -9,3 +9,9 @@ export async function logoutAccount(csrfToken: string, send: typeof fetch = fetc
   });
   if (!response.ok || (await response.json()).signedOut !== true) throw new Error("Sign-out failed");
 }
+
+/** Navigate only after acknowledged revocation and cookie clearing. Injectable for regression tests. */
+export async function signOutToHome(csrfToken: string, navigate: (path: string) => void, send: typeof fetch = fetch) {
+  await logoutAccount(csrfToken, send);
+  navigate("/");
+}

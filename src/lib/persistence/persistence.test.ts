@@ -809,7 +809,7 @@ test("dashboard covers neither role, streamer only, subscriber only and both wit
     assert.ok(html.includes(`href="${houseEditorPath(p.townId, p.house.id)}"`));
     assert.equal(p.house.ownerTwitchUserId, f.member.twitchUserId);
   }
-  assert.match(html, /My Town/); assert.match(html, /My Houses/); assert.match(html, /Sign out/);
+  assert.match(html, /My Town/); assert.match(html, /My Houses/); assert.match(html, /Open Town Overview/);
   assert.ok(!html.includes("test-access")); assert.ok(!html.includes("encryptedTokens"));
   const legacy = renderToStaticMarkup(createElement(AccountDashboard, { data: { ...subscriber, houses: [{ ...subscriber.houses[0], editable: false, streamerName: undefined }] } }));
   assert.match(legacy, /View retained house/); assert.ok(!legacy.includes("Customize House")); assert.match(legacy, /name unavailable/);

@@ -51,7 +51,7 @@ export function createAuthHandlers(service: () => AuthService, production: boole
         operation = "callback_session";
         const login = await auth.finishLogin({ state: params.get("state") ?? undefined, code: params.get("code") ?? undefined,
           error: params.get("error") ?? undefined }, request.cookies.get(names.state)?.value, request.cookies.get(names.session)?.value);
-        response = redirect(login.housingRequested ? "/?housing=authorized" : login.chatRequested ? "/?chat=authorized" : "/dashboard");
+        response = redirect(login.housingRequested ? "/town-overview?housing=authorized" : login.chatRequested ? "/town-overview?chat=authorized" : "/dashboard");
         response.cookies.set(names.session, login.id, cookieOptions(production, SESSION_TTL_MS / 1000));
         authDiagnostic(operation, "success");
       } catch (error) { authDiagnostic(operation, "failure", error); response = redirect(`/account?auth=${errorCode(error)}`); }
@@ -86,7 +86,7 @@ export function createAuthHandlers(service: () => AuthService, production: boole
         await auth.signOut(request.cookies.get(names.session)?.value, new URLSearchParams(body).get("csrfToken") ?? undefined);
         auth.cancelLogin(request.cookies.get(names.state)?.value);
         const response = request.headers.get("accept") === "application/json"
-          ? privateResponse(NextResponse.json({ signedOut: true })) : redirect("/account?auth=signed_out");
+          ? privateResponse(NextResponse.json({ signedOut: true })) : redirect("/");
         clear(response, names.session); clear(response, names.state);
         return response;
       } catch (error) { return privateResponse(NextResponse.json({ error: errorCode(error) }, { status: 403 })); }
