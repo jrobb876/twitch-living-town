@@ -8,6 +8,7 @@ import type { AccountProfile } from "../auth/types";
 import { displaySchema, overlayWorld, type OverlayActivity } from "./model";
 import type { OverlayReaction } from "./reactions";
 import { OverlayPopulationProjector, type OverlayPopulation } from "./population";
+import type { TownEffect } from "../simulation/types";
 
 export const displayActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("save"), townId: townIdSchema, settings: displaySchema }).strict(),
@@ -19,7 +20,8 @@ export class OverlayService {
   private population = new OverlayPopulationProjector();
   constructor(private rpc: RpcClient, private towns: TownPersistenceService,
     private activity: (owner: string) => OverlayActivity,
-    private reactions: (owner: string, townId: string) => OverlayReaction[]) {}
+    private reactions: (owner: string, townId: string) => OverlayReaction[],
+    private housewarmings: (owner: string, townId: string) => TownEffect[] = () => []) {}
   private async call(name: "living_town_display_manage" | "living_town_display_read", args: Record<string, Json>) {
     try {
       const result = await this.rpc(name, args);
@@ -51,8 +53,9 @@ export class OverlayService {
     return { townId, revision: row.revision!, settings: parseInput(displaySchema, row.settings),
       ...(revision !== row.revision ? { world: overlayWorld(world) } : {}),
       population: this.population.project(world),
+      housewarmings: this.housewarmings(world.streamerTwitchUserId, townId).slice(-32),
       activity: this.activity(world.streamerTwitchUserId), reactions: this.reactions(world.streamerTwitchUserId, townId) };
   }
 }
 // Optional at the playback boundary for an already-open client receiving an older server response.
-export type OverlaySnapshot = Omit<Awaited<ReturnType<OverlayService["read"]>>, "population"> & { population?: OverlayPopulation };
+export type OverlaySnapshot = Omit<Awaited<ReturnType<OverlayService["read"]>>, "population" | "housewarmings"> & { population?: OverlayPopulation; housewarmings?: TownEffect[] };

@@ -5,6 +5,7 @@ import { getSubscriberHousing } from "../subscribers/server";
 import { OverlayService } from "./service";
 import { offlineActivity } from "./model";
 import { reactionFromEffect } from "./reactions";
+import { housewarmingCues } from "../rendering/housewarming";
 
 let service: OverlayService | undefined;
 export function getOverlayService() {
@@ -14,6 +15,9 @@ export function getOverlayService() {
     try { return getSubscriberHousing().overlayPresentations(owner, townId).flatMap((p) => p.effects.flatMap((effect, index) => {
       const reaction = reactionFromEffect(effect, `${p.id}:${index}`, p.expiresAt); return reaction ? [reaction] : [];
     })); } catch { return []; }
+  }, (owner, townId) => {
+    try { return getSubscriberHousing().overlayPresentations(owner, townId).flatMap((p) => housewarmingCues(p.effects, p.id, p.expiresAt)); }
+    catch { return []; }
   });
   return service;
 }

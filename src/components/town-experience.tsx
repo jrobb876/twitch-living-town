@@ -91,8 +91,8 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
           <div><div className="eyebrow">A COMMUNITY IN BLOOM <span>✿</span></div><h1 id="town-title">Welcome to {world.name}<span>.</span></h1><p>A cozy little world. A place for everyone. One very small Mayor.</p></div>
         </section>
         <PersistentTown onTown={onTown} initialTown={savedTown} />
-        <CommunityConnection key={savedTown?.world.id ?? "community-demo"} townId={savedTown?.world.id ?? null} compact />
-        <SubscriberHousing key={savedTown?.world.id ?? "no-saved-town"} onPresentation={receivePresentation} controls={false} />
+        <CommunityConnection key={`community:${savedTown?.world.id ?? "demo"}`} townId={savedTown?.world.id ?? null} compact />
+        <SubscriberHousing key={`housing:${savedTown?.world.id ?? "demo"}`} onPresentation={receivePresentation} controls={false} />
         <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} showSourceControls={enableSimulator} controls={false} />
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">
@@ -127,8 +127,7 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
             <section className="future-note"><span aria-hidden="true">✿</span><div><h3>A town that grows with you</h3><p>Today, a first village. Soon, a home for your Twitch community.</p><span className="local-label">{persistentView ? "PERSISTENT TOWN · LIVE CHAT SOURCE" : mode === "live" ? "LIVE CHAT PREVIEW · NOT SAVED" : "SIMULATED DEMO · LOCAL EVENTS"}</span></div></section>
           </aside>
         </section>
-        {process.env.NODE_ENV === "development" && enableSimulator && mode === "simulated" && <details className="event-simulator"><summary>Development tools · simulated town</summary><p>Generate a new local demo layout. This does not save or change your community’s town.</p><button className="account-button" type="button" onClick={regenerate}>Regenerate demo town</button></details>}
-        {enableSimulator && mode === "simulated" && <EventSimulator state={demoSession} onEvent={sendEvent} onReset={onReset} />}
+        {enableSimulator && mode === "simulated" && <EventSimulator state={demoSession} onEvent={sendEvent} onReset={onReset} onRegenerate={process.env.NODE_ENV === "development" ? regenerate : undefined} />}
         <footer className="page-footer"><span><span className="footer-leaf">❧</span> Every community deserves a place to call home.</span><span>Twitch Living Town <b>/</b> Foundation & first village</span></footer>
       </main>
     </div>

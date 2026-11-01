@@ -1,5 +1,20 @@
 # Twitch Living Town
 
+## Subscriber housewarming highlights (Prompt 020C)
+
+Successful new housing assignments carry the allocator's actual house ID and subscriber display name in ephemeral presentation metadata. Existing cottages and newly built homes receive a soft gold outline, four roof sparkles and a short label for five seconds, with a smooth fade. Ownership, allocation and saved-world data are unchanged. Renewals without a new assignment, imports, subscriber synchronization and refreshed views do not replay highlights.
+
+Highlights share the town's camera transform and never request a camera move. Overview and Follow Mayor show labels at readable zoom (at least 0.45 scale); Mayor Spotlight omits labels and retains subtle outlines/sparkles when its town background is visible. Transparent Spotlight retains the existing Mayor celebration. Reduced motion keeps sparkles static while preserving the fade. At most four recent houses are highlighted concurrently; excess burst effects are dropped rather than queued for sequential playback. The existing bounded presentation buffer, per-view replay cursors and event deduplication remain in place. A house outside the camera remains offscreen; the existing Mayor celebration continues.
+
+Manual verification:
+
+1. Restart the Node server after updating. In an authorized development session, open `/town-overview`, select the simulated source, open **Event simulator**, and **Reset simulation**.
+2. Click **New subscriber**. An existing cottage should glow and show the simulated subscriber's name while the Mayor celebrates. Pan and zoom during the five-second effect; it should stay attached to that cottage and fade away.
+3. Click **Resubscription** and **Retry last event ID**: neither should highlight another house. Fill existing capacity, then add a subscriber to verify a newly constructed home. Add 48 demo subscribers to confirm at most four simultaneous highlights with no long animation backlog.
+4. Enable reduced motion in the OS/browser settings and repeat: sparkles should remain still. Reset simulation should clear all effects.
+5. For live testing, leave Overview and valid OBS sources open before a new verified subscriber receives a house. Check at 1920×1080 in Follow Mayor and Spotlight with town background. A visible assigned house should highlight; Spotlight must not show a large caption or jump the camera. Local simulated events do not propagate to a real OBS town.
+6. Refresh the views, reconnect, or run subscriber sync: old assignments should not replay. Manual visual/OBS verification is required; automated tests use synthetic events and local database fixtures only.
+
 ## Connect My Twitch Community (Prompt 020)
 
 Open **My Town → Community** (`/dashboard/town#community`) and choose the optional **Followers**, **Subscribers** and **Twitch chat** features, then click **Connect My Twitch Community**. Previously, each integration required separate authorization, import/sync and connection actions, with duplicate controls on Overview. The guided action now:

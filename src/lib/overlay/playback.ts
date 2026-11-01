@@ -7,6 +7,7 @@ import { defaultDisplay } from "./model";
 import { normalizeReaction } from "../mayor/reactions";
 import { PresentationCursor } from "../simulation/presentation-cursor";
 import { reconcileResidentSources, type ResidentSource } from "../simulation/residents";
+import { HOUSEWARMING_MS } from "../rendering/housewarming";
 
 /** Presentation only: never processes durable events or generates a replacement town. */
 export class OverlayPlayback {
@@ -14,6 +15,7 @@ export class OverlayPlayback {
   revision: number | null = null;
   settings = defaultDisplay;
   private cursor = new PresentationCursor();
+  private homeCursor = new PresentationCursor();
   private reactionId: string | null = null;
   private populationEpoch: string | null = null;
   private populationSources: ResidentSource[] = [];
@@ -36,7 +38,9 @@ export class OverlayPlayback {
     const samples = snapshot.activity.sampleAgesMs.filter((age) => Number.isFinite(age) && age >= 0 && age < 60000).slice(-2000)
       .map((age, i) => ({ userId: `activity-${i}`, message: "", at: now - age }));
     this.session.runtime.activity = calculateActivity(samples, now);
-    this.session.runtime.effects = [...this.session.runtime.effects, ...this.cursor.take(snapshot.reactions, now).map((cue) => {
+    this.session.runtime.effects = [...this.session.runtime.effects,
+      ...this.homeCursor.take(snapshot.housewarmings ?? [], now).map((cue) => ({ ...cue, reaction: null, startedAt: now, expiresAt: now + HOUSEWARMING_MS })),
+      ...this.cursor.take(snapshot.reactions, now).map((cue) => {
       const reaction = normalizeReaction(cue);
       return { id: cue.id, kind: "gift" as const, position: cue.position, startedAt: now, expiresAt: cue.expiresAt,
         label: reaction.label, reaction: { kind: cue.kind, quantity: reaction.quantity } };
@@ -50,8 +54,9 @@ export class OverlayPlayback {
     if (changed) {
       this.reactionId = reaction?.id ?? null;
     }
-    this.session.runtime.effects = reaction ? [{ id: reaction.id, kind: "gift", position: this.session.runtime.mayor.position,
-      label: reaction.label, startedAt: reaction.startedAt, expiresAt: reaction.until, reaction: { kind: reaction.kind, quantity: reaction.quantity } }] : [];
+    const homes = this.session.runtime.effects.filter((effect) => effect.housewarming);
+    this.session.runtime.effects = [...homes, ...(reaction ? [{ id: reaction.id, kind: "gift" as const, position: this.session.runtime.mayor.position,
+      label: reaction.label, startedAt: reaction.startedAt, expiresAt: reaction.until, reaction: { kind: reaction.kind, quantity: reaction.quantity } }] : [])];
     return changed && reaction ? { ...reaction, position: this.session.runtime.mayor.position } : null;
   }
   unavailable() {
@@ -63,5 +68,5 @@ export class OverlayPlayback {
       if (state) this.session.runtime.reactionPlayback = { ...state, active: null, pending: [], chainStartedAt: null };
     }
   }
-  clear() { this.unavailable(); this.cursor.clear(); this.session = null; this.revision = null; this.populationEpoch = null; this.populationSources = []; }
+  clear() { this.unavailable(); this.cursor.clear(); this.homeCursor.clear(); this.session = null; this.revision = null; this.populationEpoch = null; this.populationSources = []; }
 }

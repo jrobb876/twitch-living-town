@@ -63,6 +63,7 @@ export type TownWorld = {
   communityImport?: CommunityImport;
 };
 export type TownEffect = {
+  housewarming?: { houseId: string; displayName: string };
   reaction?: { kind: ReactionKind; quantity?: number } | null;
   id: string; kind: "arrival" | "housewarming" | "welcome-back" | "gift" | "raid" | "neighborhood";
   position: WorldPosition; label: string; startedAt: number; expiresAt: number;

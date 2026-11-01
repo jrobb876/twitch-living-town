@@ -55,16 +55,18 @@ test("automatic mount/focus/event refresh remains wired; normal pending and no-t
   const empty = status({ town: null }); assert.match(empty, /Create my town/); assert.ok(!empty.includes("Retry"));
 });
 
-test("regeneration is absent in production and saved views, and available only in an authorized development demo", () => {
+test("Overview has no standalone regeneration controls in production, saved or demo views", () => {
   const env = process.env as Record<string, string | undefined>, prior = env.NODE_ENV;
   try {
-    for (const [runtime, allowed, saved, visible] of [
-      ["production", false, town(), false], ["production", true, null, false],
-      ["development", false, null, false], ["development", true, town(), false], ["development", true, null, true],
+    for (const [runtime, allowed, saved] of [
+      ["production", false, town()], ["production", true, null],
+      ["development", false, null], ["development", true, town()], ["development", true, null],
     ] as const) {
       env.NODE_ENV = runtime;
       const html = renderToStaticMarkup(createElement(TownExperience, { initialTown: saved, enableSimulator: allowed }));
-      assert.equal(html.includes("Regenerate demo town"), visible);
+      // Simulator controls now live in the client-only dynamic component;
+      // navigation.test.ts covers its contents and the parent access guards.
+      for (const label of ["Development tools · simulated town", "Regenerate demo town", "Regenerate layout", "Reset simulation"]) assert.ok(!html.includes(label));
       assert.ok(!html.includes("Reload saved town")); assert.ok(!html.includes("Regenerate town"));
       if (saved) { assert.ok(html.includes(saved.world.name)); assert.match(html, /Manage My Town/); }
     }

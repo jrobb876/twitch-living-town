@@ -73,9 +73,9 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
       world.processedEvents.push(outcome); return { state: next, outcome };
     }
   }
-  function effect(kind: TownEffect["kind"], label: string, position = world.layout.hall, lifetime = 8000) {
+  function effect(kind: TownEffect["kind"], label: string, position = world.layout.hall, lifetime = 8000, housewarming?: TownEffect["housewarming"]) {
     if (options.historical) return;
-    runtime.effects.push({ id: `${event.id}:${runtime.effects.length}`, kind, label, position: { ...position }, startedAt: now, expiresAt: now + lifetime });
+    runtime.effects.push({ id: `${event.id}:${runtime.effects.length}`, kind, label, position: { ...position }, startedAt: now, expiresAt: now + lifetime, ...(housewarming ? { housewarming } : {}) });
     runtime.effects = runtime.effects.slice(-32);
   }
   function mayorTask(nodeId: string, kind: "celebrate" | "welcome", lifetime = 120000) {
@@ -124,7 +124,7 @@ export function processEvent(state: TownSession, event: TownEvent, receivedAt = 
     } else house.ownerTwitchUserId = user.twitchUserId;
     record.houseId = house.id; record.housingStatus = "housed";
     outcome.houseIds.push(house.id);
-    effect("housewarming", `A home for ${user.displayName}!`, house.position, 12000);
+    effect("housewarming", `A home for ${user.displayName}!`, house.position, 12000, { houseId: house.id, displayName: user.displayName });
     mayorTask(plot.entranceNodeId, "celebrate");
     reserve(PLANNING.reserve);
     return record;

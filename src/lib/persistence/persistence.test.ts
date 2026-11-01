@@ -598,6 +598,7 @@ test("paged verified import, unchanged sync, customization and plot identity sur
   let status = await h.sync();
   assert.equal(status.lastSync?.status, "complete"); assert.equal(status.lastSync?.pages, 2);
   assert.equal(status.lastSync?.imported, 3); assert.equal(status.active, 3);
+  assert.equal(status.presentations.some((p) => p.effects.some((e) => e.housewarming)), false, "subscriber sync never publishes housewarming history");
   const loaded = (await service.mine(h.owner))!, home = await service.ownHouse({ ...profile(), twitchUserId: "777" }, loaded.world.id);
   assert.ok(home);
   await service.updateHouse(h.owner, loaded.world.id, home.id, loaded.revision, { customization: { sign: "Kept" } });
@@ -686,6 +687,13 @@ test("verified individual gifts and unrelated subscriptions carry distinct cues 
   const cues = (await h.housing.status(h.owner)).presentations.flatMap((p) => p.effects).flatMap((e) => e.reaction ? [e.reaction.kind] : []);
   assert.deepEqual(cues, ["gift-recipient", "subscriber"]);
   const saved = (await service.mine(h.owner))!;
+  const homes = (await h.housing.status(h.owner)).presentations.flatMap((p) => p.effects).filter((e) => e.housewarming);
+  assert.equal(homes.length, 2, "duplicate verified delivery must not duplicate the highlight");
+  for (const cue of homes) {
+    const resident = saved.world.residents.find((r) => r.houseId === cue.housewarming!.houseId)!;
+    assert.ok(resident); assert.equal(cue.housewarming!.displayName, resident.displayName);
+    assert.deepEqual(cue.position, housesIn(saved.world).find((house) => house.id === resident.houseId)!.position);
+  }
   assert.equal(saved.world.residents.length, 2); assert.equal(housesIn(saved.world).filter((house) => house.ownerTwitchUserId).length, 2);
 });
 

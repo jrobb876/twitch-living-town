@@ -21,6 +21,27 @@ const signedOut: AccountState = { user: null, csrfToken: null };
 const signedIn: AccountState = { user: { twitchUserId: "12345", displayName: "Test neighbor", login: "neighbor", profileImageUrl: null }, csrfToken: "synthetic-csrf" };
 const render = (child: ReturnType<typeof createElement>, account = signedOut) => renderToStaticMarkup(createElement(AccountProvider, { initialAccount: account }, child));
 
+test("simulator groups reset and regeneration separately from events and growth while retaining access guards", async () => {
+  const props = { state: createSession(publicSampleTown()), onEvent() {}, onReset() {} };
+  const html = renderToStaticMarkup(createElement(EventSimulator, { ...props, onRegenerate() {} }));
+  assert.equal((html.match(/<details/g) ?? []).length, 1);
+  const controls = html.match(/<fieldset>[\s\S]*?<\/fieldset>/)?.[0];
+  assert.ok(controls);
+  for (const label of ["Regenerate layout", "Reset simulation", "keeping the current layout seed", "new seed", "Saved community towns are unchanged"]) assert.ok(controls.includes(label));
+  for (const label of ["New subscriber", "Add 12 demo subscribers", "Individual gift · simulated"]) {
+    assert.ok(html.includes(label)); assert.ok(!controls.includes(label));
+  }
+  assert.ok(!html.includes("Reset demo town"));
+  assert.ok(!renderToStaticMarkup(createElement(EventSimulator, props)).includes("Regenerate layout"));
+  const source = await readFile("src/components/town-experience.tsx", "utf8");
+  assert.ok(!source.includes("Development tools · simulated town"));
+  assert.match(source, /enableSimulator && mode === "simulated" && <EventSimulator/);
+  assert.match(source, /onRegenerate=\{process.env.NODE_ENV === "development" \? regenerate : undefined\}/);
+  assert.match(source, /process.env.NODE_ENV !== "development" \|\| !enableSimulator \|\| mode !== "simulated"/);
+  assert.match(source, /onReset=\{\(\) => setGeneration\(\(current\) => \(\{ \.\.\.current, revision: current.revision \+ 1 \}\)\)\}/);
+  assert.match(source, /onRegenerate=\{\(seed\) => setGeneration\(\(current\) => \(\{ seed, revision: current.revision \+ 1 \}\)\)\}/);
+});
+
 test("Overview, management and simulator display one conceptual neighborhood then two with correct housing labels", () => {
   const initial = publicSampleTown();
   for (const [index, world] of [initial, addDistrict(initial)!].entries()) {

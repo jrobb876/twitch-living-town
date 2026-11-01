@@ -6,8 +6,8 @@ import { availablePlots } from "@/lib/simulation/expansion";
 import { neighborhoodLabel } from "@/lib/simulation/population";
 import type { EventOutcome, TownEvent, TownSession, TwitchIdentity } from "@/lib/simulation/types";
 
-type Props = { state: TownSession; onEvent: (event: TownEvent) => void; onReset: () => void };
-export default function EventSimulator({ state, onEvent, onReset }: Props) {
+type Props = { state: TownSession; onEvent: (event: TownEvent) => void; onReset: () => void; onRegenerate?: () => void };
+export default function EventSimulator({ state, onEvent, onReset, onRegenerate }: Props) {
   const sequence = useRef(0);
   const [lastEvent, setLastEvent] = useState<TownEvent | null>(null);
   const [result, setResult] = useState<EventOutcome | null>(null);
@@ -61,7 +61,6 @@ export default function EventSimulator({ state, onEvent, onReset }: Props) {
       }}>Replay gift recipients</button>
       <button onClick={() => send({ ...base(), type: "INCOMING_RAID", raider: identity("Raider"), viewers: 25 })}>Incoming raid · 25</button>
       <button disabled={!lastEvent} onClick={() => lastEvent && send(lastEvent)}>Retry last event ID</button>
-      <button onClick={onReset}>Reset demo town</button>
     </div>
     <p>{neighborhoodLabel(state.world)} · {state.world.plots.length} total plots · {availablePlots(state.world)} available housing slots. Use Fit town (0) after expanding.</p>
     <div className="simulator-buttons" aria-label="Development-only neighborhood expansion">
@@ -69,6 +68,15 @@ export default function EventSimulator({ state, onEvent, onReset }: Props) {
       <button onClick={() => addSubscribers(12)}>Add 12 demo subscribers</button>
       <button onClick={() => addSubscribers(48)}>Add 48 demo subscribers</button>
     </div>
+    <fieldset>
+      <legend>Simulation controls</legend>
+      <p id="simulation-reset-help">Reset simulation clears local events, residents and growth, keeping the current layout seed.</p>
+      {onRegenerate && <p id="simulation-layout-help">Regenerate layout starts a fresh local simulation with a new seed. Saved community towns are unchanged.</p>}
+      <div className="simulator-buttons">
+        {onRegenerate && <button type="button" onClick={onRegenerate} aria-describedby="simulation-layout-help">Regenerate layout</button>}
+        <button type="button" onClick={onReset} aria-describedby="simulation-reset-help">Reset simulation</button>
+      </div>
+    </fieldset>
     {result && <p role="status" className="simulator-result">{result.status}: {result.message}</p>}
     <ol className="event-log" aria-label="Recent simulated events">
       {recent.map((event) => <li key={event.eventId}><strong>{event.type.replaceAll("_", " ")}</strong> {event.message}</li>)}

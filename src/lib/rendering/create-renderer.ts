@@ -7,6 +7,8 @@ import { rendererViewport } from "./viewport";
 import { residentVisible } from "./resident-visibility";
 import { spotlightComposition, type DisplaySettings } from "../overlay/model";
 import { attachMayorReaction } from "./mayor-reaction";
+import { housewarmingTargets } from "./housewarming";
+import { drawHousewarming } from "./draw-housewarming";
 
 export type TownRenderer = {
   update: (session: TownSession) => void;
@@ -66,6 +68,7 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     const residents = new Map<string, Graphics>();
     const effectsLayer = new Container(); world.addChild(effectsLayer);
     const effects = new Map<string, Container>();
+    const homes = new Map<string, ReturnType<typeof drawHousewarming>>();
     const cull = () => scene.cull({ x: -world.x / world.scale.x, y: -world.y / world.scale.x,
       width: app.screen.width / world.scale.x, height: app.screen.height / world.scale.x });
     const update = (next: TownSession) => {
@@ -141,6 +144,16 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       tail.rotation = reducedMotion ? 0 : Math.sin(elapsed * 2) * 0.1;
       const reaction = snapshot.runtime.reactionPlayback?.active;
       const animationNow = snapshot.runtime.now + Math.min(120, (elapsed - snapshotElapsed) * 1000);
+      const targets = housewarmingTargets(snapshot.world, snapshot.runtime.effects, animationNow);
+      for (const [id, visual] of homes) if (!targets.some((target) => target.id === id)) {
+        visual.view.destroy({ children: true }); homes.delete(id);
+      }
+      for (const target of targets) {
+        let visual = homes.get(target.id);
+        if (!visual) { visual = drawHousewarming(target.label); effectsLayer.addChild(visual.view); homes.set(target.id, visual); }
+        visual.view.position.set(target.position.x, target.position.y);
+        visual.update(animationNow - target.startedAt, reducedMotion, display?.mode === "spotlight", world.scale.x);
+      }
       mayorReaction.update(reaction, animationNow, snapshot.world.mayor.personality, reducedMotion);
       badge.visible = !reaction;
       if (display && foreground) {
