@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { HousingStatus, HousingPresentation } from "@/lib/subscribers/types";
 import { PresentationCursor } from "@/lib/simulation/presentation-cursor";
-export default function SubscriberHousing({ onPresentation }: { onPresentation: (value: HousingPresentation) => void }) {
+export default function SubscriberHousing({ onPresentation, controls = true }: { onPresentation: (value: HousingPresentation) => void; controls?: boolean }) {
   const [status, setStatus] = useState<HousingStatus | null>(null), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const lastRevision = useRef<number | null>(null), cursor = useRef(new PresentationCursor());
   useEffect(() => {
@@ -33,6 +33,7 @@ export default function SubscriberHousing({ onPresentation }: { onPresentation: 
     } catch { setError("The operation could not be confirmed. Reload status before retrying."); }
     finally { setBusy(false); }
   }
+  if (!controls) return null; // Keep polling, revision refresh and reaction delivery mounted.
   return <section className="chat-connection" aria-label="Subscriber Housing">
     <div className="chat-connection-title"><strong>Subscriber Housing</strong><span className="chat-mode">VERIFIED TWITCH DATA</span></div>
     {status && <>

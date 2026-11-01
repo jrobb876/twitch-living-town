@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { authMessages } from "@/lib/auth/messages";
 import type { ChatSnapshot } from "@/lib/chat/types";
 
-type Props = { mode: "live" | "simulated"; onMode: (mode: "live" | "simulated") => void; onSnapshot: (snapshot: ChatSnapshot | null) => void; hasSavedTown?: boolean; showSourceControls?: boolean };
-export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown = false, showSourceControls = true }: Props) {
+type Props = { mode: "live" | "simulated"; onMode: (mode: "live" | "simulated") => void; onSnapshot: (snapshot: ChatSnapshot | null) => void; hasSavedTown?: boolean; showSourceControls?: boolean; controls?: boolean };
+export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown = false, showSourceControls = true, controls = true }: Props) {
   const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -45,6 +45,11 @@ export default function ChatConnection({ mode, onMode, onSnapshot, hasSavedTown 
     } catch { setError(authMessages.unavailable); }
     finally { setBusy(false); }
   }
+  if (!controls) return <section className="chat-connection" aria-label="Twitch chat activity">
+    <p>Twitch chat · {snapshot?.receivedMessages ?? 0} messages received · {snapshot?.subscriptionReady ? "Connected" : "Not connected"}</p>
+    {showSourceControls && <div className="chat-actions"><span>{mode === "live" ? "LIVE SOURCE" : "SIMULATED"}</span><button className="account-button" disabled={(!snapshot?.authorized && !hasSavedTown) || mode === "live"} onClick={() => onMode("live")}>View live town</button><button className="account-button" disabled={mode === "simulated"} onClick={() => onMode("simulated")}>View simulated town</button></div>}
+    {statusError && <p role="status" className="account-error">{statusError}</p>}
+  </section>;
   return <section className="chat-connection" aria-label="Twitch chat connection">
     <div className="chat-connection-title"><strong>Twitch chat</strong><span className="chat-mode">{showSourceControls ? mode === "live" ? "LIVE SOURCE" : "SIMULATED" : "YOUR CHANNEL"}</span></div>
     {snapshot ? <>

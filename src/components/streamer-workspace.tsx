@@ -9,6 +9,7 @@ import { mayorLook, mayorLooks, mayorPalettes, personalities, personalityFor, pe
 import ChatConnection from "./chat-connection";
 import SubscriberHousing from "./subscriber-housing";
 import CommunityImportPanel from "./community-import";
+import CommunityConnection from "./community-connection";
 import MayorPortrait from "./mayor-portrait";
 import TownPreview from "./town-preview";
 import ObsSettings from "./obs-settings";
@@ -102,10 +103,12 @@ function Dashboard({ initialTown, csrfToken }: { initialTown: StoredTown; csrfTo
     <section id="community" className="workspace-card management-section"><h2>Community</h2>
       <div className="dashboard-stats"><div><strong>{world.residents.length}</strong><span>Residents</span></div><div><strong>{world.residents.filter((r) => r.subscription?.active && r.houseId).length}</strong><span>Active subscriber homes</span></div><div><strong>{world.plots.filter((p) => !p.buildingId).length} / {world.plots.length}</strong><span>Vacant / total plots</span></div></div>
       <p>{neighborhoodLabel(world)} · {world.residents.filter((r) => r.housingStatus === "waiting").length} neighbors waiting for homes.</p><button className="account-button" onClick={() => void refresh()}>Refresh town status</button>
-      <p>These connections are optional. If permission is missing, use the authorization button below. If your Twitch session has expired, <Link href="/account">reconnect your account</Link>, then return here.</p>
+      <CommunityConnection key={world.id} townId={world.id} />
+      <details><summary>Advanced Settings &amp; Troubleshooting</summary>
       <CommunityImportPanel />
       <ChatConnection mode="live" onMode={noMode} onSnapshot={noSnapshot} hasSavedTown showSourceControls={false} />
       <SubscriberHousing onPresentation={noPresentation} />
+      </details>
     </section>
     <section id="obs" className="management-section"><h2>Stream Display</h2><ObsSettings key={world.id} townId={world.id} csrfToken={csrfToken} /></section>
   </>;

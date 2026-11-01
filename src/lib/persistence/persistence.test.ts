@@ -20,6 +20,7 @@ import { LiveChatFeed } from "../chat/feed";
 import { validateWorld } from "./validation";
 import { CHAT_SCOPE, SUBSCRIPTION_SCOPE, FOLLOWER_SCOPE } from "../auth/types";
 import { CommunityImportService } from "../community/service";
+import { CommunitySetup } from "../community/setup";
 import { TwitchFollowers, type VerifiedFollower } from "../community/twitch";
 import { createCommunityHandlers } from "../community/http";
 import { IMPORT_LEASE_MS } from "../community/types";
@@ -1036,6 +1037,44 @@ test("community import persists empty, follower-only, subscriber-only and overla
     const again = await h.run(); assert.equal(again.summary?.status, "complete"); assert.equal(again.summary?.subscriberHousesAssigned, 0);
     assert.deepEqual((await service.mine(h.owner))!.world.buildings, loaded.world.buildings);
   }
+});
+
+test("guided setup imports followers and subscribers independently, preserves saved property and never replays historical celebrations", async () => {
+  const h = await communitySetup();
+  h.setPages([[subscriber("777")]]); await h.sync();
+  const initial = (await service.mine(h.owner))!, house = housesIn(initial.world).find((home) => home.ownerTwitchUserId === "777")!;
+  await service.updateHouse(h.owner, initial.world.id, house.id, initial.revision, { customization: { sign: "Keep my home" } });
+  const before = (await service.mine(h.owner))!;
+  h.setFollowers([[follower("777"), follower("778")]]);
+  // Fake live adapter: this test exercises the actual import, sync and SQL paths,
+  // while the setup unit tests cover real manager readiness using fake sockets.
+  const manager = new ChatManager(h.f.service);
+  manager.start = async () => {};
+  const coordinator = new CommunitySetup(h.f.service, () => service, h.community, h.housing, manager);
+  await coordinator.connect(h.login.id, before.world.id, { followers: true, subscribers: true, chat: false });
+  await h.community.waitForImport(h.owner.twitchUserId); await h.housing.waitForSync(h.owner.twitchUserId);
+  const loaded = (await service.mine(h.owner))!;
+  assert.equal(loaded.world.communityImport?.status, "complete");
+  assert.equal(loaded.world.residents.length, 2); assert.equal(loaded.world.residents.find((resident) => resident.twitchUserId === "778")?.established, true);
+  assert.deepEqual(loaded.world.buildings, before.world.buildings); assert.deepEqual(loaded.world.layout, before.world.layout);
+  assert.deepEqual(loaded.world.mayor, before.world.mayor); assert.deepEqual(loaded.world.districts, before.world.districts);
+  assert.equal((await h.housing.status(h.owner)).presentations.length, 0);
+  const revision = loaded.revision;
+  await coordinator.connect(h.login.id, before.world.id, { followers: true, subscribers: true, chat: false });
+  assert.equal((await service.mine(h.owner))!.revision, revision);
+  manager.dispose();
+});
+
+test("optional follower-only import completes without subscriber access or subscriber API calls", async () => {
+  const h = await communitySetup();
+  h.f.twitch.validation.scopes = [FOLLOWER_SCOPE]; await h.f.service.scopedSession(h.login.id, true);
+  h.api.page = async () => { assert.fail("Unselected subscriber feature must not call Twitch"); };
+  h.setFollowers([[follower("882")]]);
+  await h.community.start(h.grant, { includeSubscribers: false }); await h.community.waitForImport(h.owner.twitchUserId);
+  assert.equal((await h.community.status(h.owner)).summary?.status, "complete");
+  const loaded = (await service.mine(h.owner))!;
+  assert.equal(loaded.world.residents.length, 1); assert.equal(loaded.world.residents[0].houseId, null);
+  assert.equal((await h.housing.status(h.owner)).lastSync, null);
 });
 
 test("hundreds of paged followers deduplicate across pages and towns; subscriber expansion preserves customized homes", async () => {

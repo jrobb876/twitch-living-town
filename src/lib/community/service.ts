@@ -26,7 +26,7 @@ export class CommunityImportService {
   private active(grant: Grant) {
     if (!this.auth.scopedSessionActive(grant.key, [FOLLOWER_SCOPE])) throw new AuthError("follower_scope");
   }
-  async start(grant: Grant) {
+  async start(grant: Grant, options: { includeSubscribers?: boolean } = {}) {
     this.active(grant);
     const owner = grant.profile.twitchUserId;
     if (this.jobs.has(owner)) throw new HousingError("busy");
@@ -39,12 +39,12 @@ export class CommunityImportService {
     // CAS claim is persisted before work starts; separate tabs/processes cannot own the same lease.
     await persistence.saveCommunityImport(grant.profile, town.world.id, summary, this.now(), true);
     this.writeFailures.delete(owner);
-    const job = this.run(grant, town.world.id, summary).finally(() => { this.jobs.delete(owner); });
+    const job = this.run(grant, town.world.id, summary, options.includeSubscribers !== false).finally(() => { this.jobs.delete(owner); });
     this.jobs.set(owner, job);
     return summary;
   }
   async waitForImport(owner: string) { await this.jobs.get(owner); }
-  private async run(grant: Grant, townId: string, summary: CommunityImport) {
+  private async run(grant: Grant, townId: string, summary: CommunityImport, includeSubscribers: boolean) {
     const persistence = this.persistence(), seen = new Set<string>(), unique = new Set<string>(), cursors = new Set<string>();
     const checkpoint = async () => {
       this.active(grant);
@@ -74,17 +74,19 @@ export class CommunityImportService {
         if (cursor) cursors.add(cursor);
       } while (cursor);
       if (seen.size < minimumTotal) throw new HousingError("invalid_response");
-      summary.phase = "subscribers"; await checkpoint();
-      if (!this.auth.scopedSessionActive(grant.key, [SUBSCRIPTION_SCOPE])) throw new AuthError("subscription_scope");
-      const sync = await this.housing.startSync(grant, { historical: true, onProgress: checkpoint, onDiscovered: () => { summary.subscribersDiscovered++; }, onRecord: async (user, result) => {
-        unique.add(user.twitchUserId); summary.uniqueResidentsImported = unique.size;
-        if (result.status === "saved") summary.subscriberHousesAssigned += result.outcome?.houseIds.length ?? 0;
-        if (summary.subscribersDiscovered % 20 === 0) await checkpoint();
-      } });
-      await this.housing.waitForSync(grant.profile.twitchUserId);
-      const status = await this.housing.status(grant.profile);
-      if (status.lastSync?.id !== sync.id || status.lastSync.status !== "complete") {
-        throw new HousingError(housingCode({ code: status.lastSync?.error }));
+      if (includeSubscribers) {
+        summary.phase = "subscribers"; await checkpoint();
+        if (!this.auth.scopedSessionActive(grant.key, [SUBSCRIPTION_SCOPE])) throw new AuthError("subscription_scope");
+        const sync = await this.housing.startSync(grant, { historical: true, onProgress: checkpoint, onDiscovered: () => { summary.subscribersDiscovered++; }, onRecord: async (user, result) => {
+          unique.add(user.twitchUserId); summary.uniqueResidentsImported = unique.size;
+          if (result.status === "saved") summary.subscriberHousesAssigned += result.outcome?.houseIds.length ?? 0;
+          if (summary.subscribersDiscovered % 20 === 0) await checkpoint();
+        } });
+        await this.housing.waitForSync(grant.profile.twitchUserId);
+        const status = await this.housing.status(grant.profile);
+        if (status.lastSync?.id !== sync.id || status.lastSync.status !== "complete") {
+          throw new HousingError(housingCode({ code: status.lastSync?.error }));
+        }
       }
       summary.status = "complete"; summary.phase = "finished";
     } catch (error) {

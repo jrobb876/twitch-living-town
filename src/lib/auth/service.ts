@@ -26,7 +26,7 @@ export class AuthService {
     return names;
   }
 
-  beginLogin(previousBinding?: string, chatUserId?: string, scopes = chatUserId ? [CHAT_SCOPE] : []) {
+  beginLogin(previousBinding?: string, chatUserId?: string, scopes = chatUserId ? [CHAT_SCOPE] : [], communitySetup = false) {
     const requiredScopes = [...new Set(scopes)];
     if (requiredScopes.some((scope) => !COMMUNITY_SCOPES.includes(scope)) || (requiredScopes.length && !chatUserId)) throw new AuthError("forbidden");
     this.cancelLogin(previousBinding);
@@ -34,7 +34,7 @@ export class AuthService {
     if (this.store.states.size >= 1000) throw new AuthError("capacity");
     const state = randomToken(), binding = randomToken();
     this.store.states.set(this.vault.digest("state", state), {
-      bindingHash: this.vault.digest("binding", binding), expiresAt: this.now() + STATE_TTL_MS, chatUserId, requiredScopes,
+      bindingHash: this.vault.digest("binding", binding), expiresAt: this.now() + STATE_TTL_MS, chatUserId, requiredScopes, communitySetup,
     });
     const url = new URL("https://id.twitch.tv/oauth2/authorize");
     url.search = new URLSearchParams({ client_id: this.config.clientId, redirect_uri: this.config.redirectUri,
@@ -60,10 +60,12 @@ export class AuthService {
   async finishLogin(input: { state?: string; code?: string; error?: string }, binding?: string, oldSessionId?: string) {
     let tokens: OAuthTokens | undefined;
     let createdKey: string | undefined;
+    let communitySetup = false;
     let operation: AuthOperation = "callback_state";
     try {
       await this.store.ready();
       const attempt = this.consumeState(input.state, binding);
+      communitySetup = attempt.communitySetup === true;
       operation = "callback_code";
       if (input.error) throw new AuthError("denied");
       if (!input.code || input.code.length > 2048) throw new AuthError("code");
@@ -99,7 +101,7 @@ export class AuthService {
       await this.store.flush();
       if (!this.store.sessions.has(key)) throw new AuthError("unauthorized");
       return { id, profile: { ...profile }, expiresAt: now + SESSION_TTL_MS,
-        chatRequested: required.includes(CHAT_SCOPE), housingRequested: required.includes(SUBSCRIPTION_SCOPE), communityRequested: required.includes(FOLLOWER_SCOPE) };
+        chatRequested: required.includes(CHAT_SCOPE), housingRequested: required.includes(SUBSCRIPTION_SCOPE), communityRequested: required.includes(FOLLOWER_SCOPE), communitySetup };
     } catch (error) {
       if (createdKey) this.store.sessions.delete(createdKey);
       authDiagnostic(operation, "failure", error);
@@ -110,7 +112,7 @@ export class AuthService {
           await this.store.flush();
         } catch (cleanupError) { authDiagnostic("token_cleanup", "failure", cleanupError); }
       }
-      throw isAuthError(error) ? error : new AuthError("unavailable");
+      throw new AuthError(isAuthError(error) ? error.code : "unavailable", communitySetup);
     }
   }
   private queueRevocation(key: string, session: StoredSession) {

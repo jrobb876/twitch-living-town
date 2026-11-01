@@ -8,6 +8,7 @@ import { record } from "./mapping";
 import { liveTownId, type ChatSnapshot } from "./types";
 
 type Entry = { key: string; connection: EventSubConnection; feed: LiveChatFeed; touchedAt: number; chat: boolean; housing: boolean; followers: boolean };
+type ConnectionKind = "chat" | "housing" | "followers";
 export type HousingHook = { enqueue: (profile: AccountProfile, key: string, value: unknown) => void; tick: () => void };
 export class ChatManager {
   private entries = new Map<string, Entry>();
@@ -15,15 +16,17 @@ export class ChatManager {
     private subscribe = (token: string, broadcasterId: string, sessionId: string, type: EventSubType = "channel.chat.message") => subscribeToEvent(type, auth.config.clientId, token, broadcasterId, sessionId),
     private housingHook?: HousingHook, private followerHook?: HousingHook) {}
 
-  async start(id: string | undefined, kind: "chat" | "housing" | "followers" = "chat") {
+  async start(id: string | undefined, kind: ConnectionKind | readonly ConnectionKind[] = "chat") {
+    const requested: readonly ConnectionKind[] = typeof kind === "string" ? [kind] : kind;
+    if (!requested.length) return;
     const grant = await this.auth.scopedSession(id, true);
-    if (!grant.scopes.includes(kind === "chat" ? CHAT_SCOPE : kind === "housing" ? SUBSCRIPTION_SCOPE : FOLLOWER_SCOPE)) throw new AuthError(kind === "chat" ? "chat_scope" : kind === "housing" ? "subscription_scope" : "follower_scope");
+    for (const feature of requested) if (!grant.scopes.includes(feature === "chat" ? CHAT_SCOPE : feature === "housing" ? SUBSCRIPTION_SCOPE : FOLLOWER_SCOPE)) throw new AuthError(feature === "chat" ? "chat_scope" : feature === "housing" ? "subscription_scope" : "follower_scope");
     const userId = grant.profile.twitchUserId;
     const existing = this.entries.get(userId);
-    if (existing && existing.key === grant.key && existing[kind] && ["connecting", "connected", "reconnecting"].includes(existing.connection.status)) return;
-    const chat = kind === "chat" || !!existing?.chat && grant.scopes.includes(CHAT_SCOPE);
-    const housing = kind === "housing" || !!existing?.housing && grant.scopes.includes(SUBSCRIPTION_SCOPE);
-    const followers = kind === "followers" || !!existing?.followers && grant.scopes.includes(FOLLOWER_SCOPE);
+    if (existing && existing.key === grant.key && requested.every((feature) => existing[feature]) && ["connecting", "connected", "reconnecting"].includes(existing.connection.status)) return;
+    const chat = requested.includes("chat") || !!existing?.chat && grant.scopes.includes(CHAT_SCOPE);
+    const housing = requested.includes("housing") || !!existing?.housing && grant.scopes.includes(SUBSCRIPTION_SCOPE);
+    const followers = requested.includes("followers") || !!existing?.followers && grant.scopes.includes(FOLLOWER_SCOPE);
     existing?.connection.stop();
     if (!existing && this.entries.size >= 100) throw new AuthError("capacity");
     const feed = existing?.feed ?? new LiveChatFeed(userId, this.now());

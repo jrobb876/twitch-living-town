@@ -18,6 +18,7 @@ import PersistentTown from "./persistent-town";
 import SubscriberHousing from "./subscriber-housing";
 import type { HousingPresentation } from "@/lib/subscribers/types";
 import MayorPortrait from "./mayor-portrait";
+import CommunityConnection from "./community-connection";
 
 const EventSimulator = dynamic(() => import("./event-simulator"), { ssr: false });
 
@@ -90,8 +91,9 @@ function TownSessionView({ seed, enableSimulator, mode, setMode, onReset, onRege
           <div><div className="eyebrow">A COMMUNITY IN BLOOM <span>✿</span></div><h1 id="town-title">Welcome to {world.name}<span>.</span></h1><p>A cozy little world. A place for everyone. One very small Mayor.</p></div>
         </section>
         <PersistentTown onTown={onTown} initialTown={savedTown} />
-        <SubscriberHousing key={savedTown?.world.id ?? "no-saved-town"} onPresentation={receivePresentation} />
-        <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} showSourceControls={enableSimulator} />
+        <CommunityConnection key={savedTown?.world.id ?? "community-demo"} townId={savedTown?.world.id ?? null} compact />
+        <SubscriberHousing key={savedTown?.world.id ?? "no-saved-town"} onPresentation={receivePresentation} controls={false} />
+        <ChatConnection mode={mode} onMode={setMode} onSnapshot={receiveSnapshot} hasSavedTown={!!savedTown} showSourceControls={enableSimulator} controls={false} />
         <section className="town-layout" aria-label="Village prototype">
           <div className="village-frame">
             <div className="map-topline"><span className="map-badge"><span className="green-dot" />{world.name} <span className="badge-divider">/</span> Town view</span><span className="weather"><span>☀</span> A lovely day to wander</span></div>

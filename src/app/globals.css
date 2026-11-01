@@ -192,6 +192,7 @@ h1 > span { color: #8caa70; }
 .workspace-form, .mayor-options { border: 0; padding: 0; margin: 0; min-width: 0; }
 .workspace-field { display: flex; flex-direction: column; gap: 8px; font-size: 14px; font-weight: 600; margin: 0 0 22px; }
 .workspace-field input { font: inherit; color: #405e4a; background: #fffef8; border: 1px solid #c9d3c0; border-radius: 8px; padding: 12px; width: 100%; }
+.community-choice input { width: auto; margin-right: 8px; }
 .mayor-options legend { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
 .mayor-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 24px; }
 .mayor-option, .personality-option { position: relative; background: #f5f4eb; border: 2px solid transparent; border-radius: 12px; padding: 12px; cursor: pointer; }

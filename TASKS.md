@@ -1,5 +1,16 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 020 — Unified Twitch community connection
+
+- [x] Audit scope upgrades, session lifecycle, historical import/sync, shared EventSub readiness and duplicated controls; keep the existing OAuth/EventSub architecture and scopes.
+- [x] Add optional feature selection and one guided Connect My Twitch Community action in My Town → Community, with individual permission/import/live outcomes and explicit retry/recovery.
+- [x] Add owner/CSRF/origin-checked orchestration, bounded concurrent setup protection, quiet independent imports, completed-import skipping and one batched shared-socket start.
+- [x] Add fixed-purpose OAuth return metadata with normal single-use state checks; consume recent same-town tab intent once, verify permissions server-side again and never automatically repeat OAuth after denial/failure.
+- [x] Retain existing individual controls in collapsed Advanced Settings & Troubleshooting. Replace Overview management panels with compact status/link while retaining chat, subscriber presentations, saved-world refresh and authorized source/simulator controls.
+- [x] Add synthetic regression coverage for missing/partial scopes, denial/return, duplicate attempts, import continuation/preservation, optional follower-only imports, partial listener failures, restart reconnection, tenant/CSRF boundaries and UI placement.
+- [x] Final TypeScript, lint, all 267 tests (zero failures/skips), production build and tracked/new-file Git diff checks passed. Eleven new tests cover the guided flow and real import/persistence paths using synthetic gateways and disposable local PostgreSQL fixtures. Initial test-runner sandbox user-info failures were rerun successfully; no live services were used.
+- [ ] Manual Twitch/Chrome/OBS checklist in README. No browser automation, live database changes, migrations, new scopes/types, OBS credential changes, commits, pushes or deployment.
+
 ## Prompt 019B — Town Overview loading loop
 
 - [x] Compare all uncommitted Prompt 019 changes with the last committed version; retain completed reactions. Trace Overview, account provider, loading boundaries, saved-town/chat/subscriber polling, stable renderer initialization and navigation.

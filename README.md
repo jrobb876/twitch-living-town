@@ -1,5 +1,38 @@
 # Twitch Living Town
 
+## Connect My Twitch Community (Prompt 020)
+
+Open **My Town → Community** (`/dashboard/town#community`) and choose the optional **Followers**, **Subscribers** and **Twitch chat** features, then click **Connect My Twitch Community**. Previously, each integration required separate authorization, import/sync and connection actions, with duplicate controls on Overview. The guided action now:
+
+1. Checks the authenticated town owner's actual grants and explains missing access.
+2. Uses the existing state-bound Twitch OAuth upgrade for selected missing features, retaining already granted community permissions. It uses only the existing `moderator:read:followers`, `channel:read:subscriptions` and `user:read:chat` scopes; basic login is unchanged.
+3. Returns to Community and consumes a recent same-town, tab-local pending intent once. The server rechecks identity, CSRF, town ownership and scopes before continuing. A redirect or browser-stored preference does not prove authorization. Denial/missing grants produce a recovery message, never an automatic OAuth loop.
+4. Starts any incomplete selected follower import and subscriber synchronization, quietly importing historical records through the existing verified services. These are independent jobs; overlapping memberships still reconcile into one resident. Completed imports are skipped on routine reconnects.
+5. Starts eligible selected live integrations on one shared EventSub socket. Permission, historical import progress and actual live subscription readiness are shown separately. **Connected** requires all selected features to be granted, their imports complete and their listeners ready.
+
+**Advanced Settings & Troubleshooting** is collapsed by default and retains the original individual authorization, Community Import/reimport/retry, subscriber sync, connection/disconnection and diagnostic controls. A normal retry keeps completed work. Deliberate reimports remain explicit. Unchecking a feature excludes it from this setup; it does not revoke existing access or stop an existing listener—use Advanced Settings to disconnect. Subscriber availability remains subject to Twitch's existing broadcaster eligibility rules.
+
+Town Overview now shows a compact Community Connection summary and management link. Its existing chat/activity polling, subscriber presentation cursor, saved-town revision refresh, Mayor reactions and authorized demo/live source controls remain mounted. OBS URLs, grants and presentation behavior are unchanged.
+
+Selections are non-sensitive browser-local preferences per town. OAuth continuation is tab-local, single-use and expires after ten minutes. If browser storage is unavailable, the intent expires, another town/account is active, or the server restarts during OAuth, continuation is not inferred: return to Community and click the action again. After a server restart, click Connect to restore live listeners; already completed imports are retained. This is still the existing single-instance deployment architecture. All enabled types share one EventSub socket: one failed subscription can hold readiness back for the whole socket; advanced controls can isolate the failing feature. No new environment variables or migrations are needed.
+
+Manual verification (fully restart Node after these server changes; use `http://localhost:3000`, not an alternate local origin):
+
+1. Sign in, open My Town → Community, select only the features you want and click Connect. Check the missing-permission explanation and Twitch consent screen. Approve and confirm automatic return/continuation, import progress and live readiness without a second setup click.
+2. Decline an upgrade. Confirm a clear recovery message and no redirect loop. Uncheck an unwanted feature and retry. Already granted features and existing houses must remain intact.
+3. Click Connect again, including from a second tab while setup runs. Completed imports must not restart; readiness must reflect actual subscriptions. For a fresh import, verify follower/subscriber overlap produces one resident and no historical welcome/celebration replay. Existing customization, positions and Mayor settings must remain.
+4. Use Advanced Settings to deliberately disconnect/reconnect a feature, sync subscribers or reimport. Verify the summary reports partial/lost readiness accurately and retains successful progress if a step fails.
+5. Restart Node, return to Community and reconnect. Completed imports should be skipped. Send real chat, verify the Overview counter/activity, then check Mayor reactions and both existing OBS modes. Overview should link here without authorization/sync panels; authorized simulation/source controls should still work.
+
+Automated coverage uses synthetic OAuth/EventSub responses and disposable local PostgreSQL fixtures; no live Supabase/Twitch calls or browser automation. Changed areas: the new setup route, coordinator/model/HTTP helpers and Community Connection component; fixed-purpose OAuth return metadata; follower-only import option; batched shared-socket start; Overview/management control presentation; regression tests and documentation.
+
+Prompt 020 file inventory:
+
+- Added `src/app/api/community/setup/route.ts`, `src/components/community-connection.tsx`, and `src/lib/community/setup.ts`, `setup-http.ts`, `setup-model.ts`, `setup.test.ts`.
+- Updated `src/components/streamer-workspace.tsx`, `town-experience.tsx`, `chat-connection.tsx`, `subscriber-housing.tsx`, and `src/app/globals.css`.
+- Updated `src/lib/auth/http.ts`, `service.ts`, `store.ts`, `types.ts`; `src/lib/chat/manager.ts`; `src/lib/community/service.ts`; and `src/lib/persistence/persistence.test.ts`.
+- Updated `README.md` and `TASKS.md`. Validation: TypeScript, lint, all 267 tests, production build and Git diff checks passed. Real Twitch approval and browser/OBS presentation still require the manual checklist above.
+
 ## Town Overview development reload loop (Prompt 019B)
 
 `npm run dev` now uses Next's supported **Webpack** development bundler. The previously running Next 16.4.3 Turbopack server repeatedly sent an HMR `restart` instruction for its shared runtime entry chunk on fresh subscriptions; Next's client executes `location.reload()` for that instruction. This restarts the whole document, account request, loading boundary and renderer. An HTTP/HMR probe reproduced it on the public home page with and without `utm_source`, independent of authentication and Mayor reactions. The internal reason Turbopack invalidated that chunk is not established; this is a narrow development-bundler workaround, not an authentication change. Production still uses `next build` / `next start`.

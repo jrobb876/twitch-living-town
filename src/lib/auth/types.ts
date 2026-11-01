@@ -8,7 +8,7 @@ export type AccountProfile = {
 
 export type AuthErrorCode = "configuration" | "state" | "denied" | "code" | "unavailable" | "invalid_token" | "expired" | "unauthorized" | "forbidden" | "capacity" | "chat_scope" | "subscription_scope" | "follower_scope";
 export class AuthError extends Error {
-  constructor(public readonly code: AuthErrorCode) { super(code); this.name = "AuthError"; }
+  constructor(public readonly code: AuthErrorCode, public readonly communitySetup = false) { super(code); this.name = "AuthError"; }
 }
 
 const authErrorCodes = new Set<string>(["configuration", "state", "denied", "code", "unavailable", "invalid_token", "expired", "unauthorized", "forbidden", "capacity", "chat_scope", "subscription_scope", "follower_scope"] satisfies AuthErrorCode[]);
