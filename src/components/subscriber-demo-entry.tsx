@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import type { PropertyView } from "@/lib/houses/customization";
 import PropertyCards from "./property-cards";
-export default function SubscriberDemoEntry() {
+export default function SubscriberDemoEntry({ description }: { description?: string }) {
   const [data, setData] = useState<{ property?: PropertyView; csrfToken: string } | null>(null);
   const [error, setError] = useState(""), [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -22,7 +22,7 @@ export default function SubscriberDemoEntry() {
     } catch { setError("The demo could not be changed. Refresh and try again."); } finally { setBusy(false); }
   }
   return <section className="workspace-card"><div className="eyebrow">Development Demo — Simulated Subscription</div><h2>{data?.property ? "My Home in Maplebrook" : "Try the subscriber journey"}</h2>
-    <p>MaplebrookLive is fictional. Try your own cottage in a 15-subscriber, two-neighborhood town. No paid subscription or streamer onboarding is needed.</p>
+    <p>{description ?? "MaplebrookLive is fictional. Try your own cottage in a 15-subscriber, two-neighborhood town. No paid subscription or streamer onboarding is needed."}</p>
     {data?.property && <PropertyCards houses={[data.property]} />}
     <button className="account-button" disabled={!data || busy} onClick={() => void activate(data?.property ? "reset" : "activate")}>{busy ? "Preparing…" : data?.property ? "Reset subscriber demo" : "Try Subscriber Experience"}</button>
     <p>Changes stay in this login’s local server memory for up to eight hours. Resetting or restarting the server clears them.</p>

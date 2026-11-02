@@ -28,6 +28,9 @@ html:has(.obs-root), body:has(.obs-root) { background: transparent; overflow: hi
 .houses-page > h1 span { color:#b98f65; }
 .houses-page p { color:#65755e; line-height:1.8; font-size:14px; }
 .house-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:22px; margin:32px 0; }
+.account-dashboard #development-tools { margin-top:40px; padding-top:24px; border-top:1px solid var(--line); }
+.account-dashboard #development-tools .house-grid { grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr)); }
+.account-dashboard #development-tools > .house-grid > .workspace-card { margin:0; min-width:0; }
 .house-card { border:1px solid #dbe1d0; border-radius:20px; padding:26px; background:#fffdf5; text-decoration:none; transition:transform .15s; }
 .house-card:hover { transform:translateY(-3px); border-color:#9cb494; }
 .house-card h2,.house-card h3,.house-editor h2,.demo-town-section h2 { font-size:24px; font-weight:600; color:#405b49; margin:14px 0; }

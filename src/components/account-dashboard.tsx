@@ -24,6 +24,17 @@ export default function AccountDashboard({ data, subscriberDemo = false }: { dat
     <section id="my-houses" className="dashboard-houses"><div className="eyebrow">EVERY COMMUNITY, A PLACE TO BELONG</div><h2>My Houses</h2><p>Your homes across participating towns. Active membership is checked again when you save a customization.</p>
       {housesUnavailable ? <div className="house-empty"><p role="alert">Your houses could not be loaded. <a href="/dashboard">Retry dashboard</a>. Your saved properties are unchanged.</p></div> : <PropertyCards houses={houses} />}
     </section>
-    {subscriberDemo && <SubscriberDemoEntry />}
+    {subscriberDemo && <section id="development-tools" aria-labelledby="development-tools-title">
+      <div className="eyebrow">SIMULATED EXPERIENCES · DEVELOPMENT ONLY</div><h2 id="development-tools-title">Development Tools</h2>
+      <p>Explore Living Town&apos;s development simulations and testing experiences. These tools use simulated data and do not modify your live Twitch community.</p>
+      <div className="house-grid">
+        <section className="workspace-card"><h3>OBS Development Preview</h3><p>Preview expanded towns, OBS presentation modes, and simulated Mayor reactions.</p>
+          <Link className="account-button" href="/demo/obs-preview">Open OBS Preview</Link></section>
+        <SubscriberDemoEntry description="Experience Living Town as a subscriber with a customizable house in Maplebrook." />
+        <section className="workspace-card"><h3>Town Simulator</h3><p>Explore a simulated town, trigger community events, and observe neighborhood growth.</p>
+          <Link className="account-button" href="/town-overview">Open Town Simulator</Link>
+          <p className="workspace-help">If your saved town opens, select View Simulated Town. Opening this link does not reset or change your saved town.</p></section>
+      </div>
+    </section>}
   </main>;
 }
