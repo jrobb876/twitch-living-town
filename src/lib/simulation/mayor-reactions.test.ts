@@ -134,7 +134,7 @@ test("Spotlight effect envelope fits both sides and transparent backgrounds at 1
 test("authorized preview reactions affect only transient state, stop on disposal and cannot target a saved town", async () => {
   const preview = createExpandedPreview(25, 42), saved = JSON.stringify(preview);
   let now = 0, tick = () => {}, current = createSession(preview);
-  const renderer = { update: (state) => { current = state; }, destroy() {}, setDisplay() {}, zoom() {}, pan() {}, reset() {}, focusEvent() {} } satisfies TownRenderer;
+  const renderer = { update: (state) => { current = state; }, destroy() {}, setDisplay() {}, zoom() {}, pan() {}, reset() {}, focusEvent() {}, focusHouse: () => false } satisfies TownRenderer;
   const owner = startPreview(preview, defaultDisplay, async () => renderer, (fn) => { tick = fn; return () => {}; }, () => now);
   await owner.ready;
   for (const kind of previewReactions) { owner.react(kind); now += 100; tick(); now += 16000; tick(); }

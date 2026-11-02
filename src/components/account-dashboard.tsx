@@ -5,8 +5,9 @@ import { townVisitPath } from "@/lib/houses/links";
 import MayorPortrait from "./mayor-portrait";
 import PropertyCards from "./property-cards";
 import { neighborhoodLabel } from "@/lib/simulation/population";
+import SubscriberDemoEntry from "./subscriber-demo-entry";
 
-export default function AccountDashboard({ data }: { data: DashboardData }) {
+export default function AccountDashboard({ data, subscriberDemo = false }: { data: DashboardData; subscriberDemo?: boolean }) {
   const { profile, town, houses, townUnavailable, housesUnavailable } = data;
   const mayor = town?.world.mayor;
   return <main className="streamer-page account-dashboard">
@@ -23,5 +24,6 @@ export default function AccountDashboard({ data }: { data: DashboardData }) {
     <section id="my-houses" className="dashboard-houses"><div className="eyebrow">EVERY COMMUNITY, A PLACE TO BELONG</div><h2>My Houses</h2><p>Your homes across participating towns. Active membership is checked again when you save a customization.</p>
       {housesUnavailable ? <div className="house-empty"><p role="alert">Your houses could not be loaded. <a href="/dashboard">Retry dashboard</a>. Your saved properties are unchanged.</p></div> : <PropertyCards houses={houses} />}
     </section>
+    {subscriberDemo && <SubscriberDemoEntry />}
   </main>;
 }

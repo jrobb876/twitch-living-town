@@ -62,7 +62,7 @@ test("preview mode switching reuses resources; reset destroys its timer/renderer
   const saved = createWorld({ id: "actual", streamerTwitchUserId: "123", seed: 42, name: "Actual", mayorName: "Nori" });
   const original = structuredClone(saved), world = createExpandedPreview(25, 42);
   let destroyed = 0, stopped = 0, constructions = 0, ticks = () => {}, now = 0, updated: TownSession | undefined;
-  const renderer: TownRenderer = { destroy: () => { destroyed++; }, update: (state) => { updated = state; }, setDisplay: () => {}, zoom: () => {}, pan: () => {}, reset: () => {}, focusEvent: () => {} };
+  const renderer: TownRenderer = { destroy: () => { destroyed++; }, update: (state) => { updated = state; }, setDisplay: () => {}, zoom: () => {}, pan: () => {}, reset: () => {}, focusEvent: () => {}, focusHouse: () => false };
   const owner = startPreview(world, defaultDisplay, async () => { constructions++; return renderer; }, (tick) => { ticks = tick; return () => { stopped++; }; }, () => now);
   await owner.ready; owner.setDisplay({ ...defaultDisplay, mode: "spotlight" });
   now = 2000; ticks(); assert.equal(updated?.world, world, "ticks retain geometry instead of regenerating");

@@ -3,8 +3,8 @@ import { useEffect, useState } from "react";
 import { colorNames, colors, customizeHouse, exteriorOf, exteriorSchema, type ExteriorDraft, type PropertyView } from "@/lib/houses/customization";
 import HousePreview from "./house-preview";
 
-export default function HouseEditor({ initial, demo = false, onSave, onReload }: { initial: PropertyView; demo?: boolean;
-  onSave: (draft: ExteriorDraft, revision: number) => Promise<PropertyView>; onReload?: () => void }) {
+export default function HouseEditor({ initial, demo = false, onSave, onReload, onFind }: { initial: PropertyView; demo?: boolean;
+  onSave: (draft: ExteriorDraft, revision: number) => Promise<PropertyView>; onReload?: () => void; onFind?: () => void }) {
   const [saved, setSaved] = useState(initial), [draft, setDraft] = useState(() => exteriorOf(initial.house));
   const [busy, setBusy] = useState(false), [message, setMessage] = useState(""), [error, setError] = useState("");
   const valid = exteriorSchema.safeParse(draft), dirty = JSON.stringify(draft) !== JSON.stringify(exteriorOf(saved.house));
@@ -44,6 +44,7 @@ export default function HouseEditor({ initial, demo = false, onSave, onReload }:
       <div className="house-editor-actions"><button className="primary-button" disabled={!saved.editable || busy || !dirty || !valid.success} onClick={() => void save()}>{busy ? "Saving…" : demo ? "Apply to demo town" : "Save house"}</button>
         <button className="account-button" disabled={busy || !dirty} onClick={() => { setDraft(exteriorOf(saved.house)); setError(""); setMessage(""); }}>Reset to Saved</button></div>
       <p role="status">{dirty ? "Unsaved changes" : "All changes saved"}{demo ? " · demo only" : ""}</p>
+      {onFind && <button className="account-button" type="button" onClick={onFind}>Find My House</button>}
       {message && <p className="house-success" role="status">{message}</p>}{error && <p className="house-error" role="alert">{error}</p>}
       {onReload && <button className="account-button" disabled={busy} onClick={() => { if (!dirty || window.confirm("Discard your unsaved changes and reload the saved house?")) onReload(); }}>Reload saved house</button>}
     </section>

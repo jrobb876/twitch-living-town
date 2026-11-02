@@ -1,5 +1,61 @@
 # Twitch Living Town
 
+## Testing the Subscriber Experience — Development Mode
+
+Prompt 021 adds **Maplebrook**, a fictional community belonging to **MaplebrookLive**, to the existing Dashboard, My Houses, house editor and town renderer. Any authenticated Twitch account can try it without streamer onboarding, a paid subscription, or existing Living Town records. Your real towns and houses remain separate and visible when their database is configured.
+
+### Prerequisites and configuration
+
+Use Node.js 22 or newer, npm, and a browser with WebGL enabled. For an independent judge installation, register **your own confidential Twitch developer application**, with the exact OAuth redirect `http://localhost:3000/api/auth/twitch/callback`. Twitch requires a verified email and 2FA to register an application; follow [Twitch's application registration instructions](https://dev.twitch.tv/docs/authentication/register-app/). A judge using an already-configured local demonstration only needs their own Twitch account; they do not need access to the developer's credentials.
+
+Copy `.env.example` to `.env.local` **only if you do not already have one**. Configure your own `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_REDIRECT_URI` and `SESSION_SECRET`. Generate the session secret locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"` and keep the output private. No new environment variables or Twitch scopes are required.
+
+For an isolated judge setup, use:
+
+```dotenv
+TWITCH_REDIRECT_URI=http://localhost:3000/api/auth/twitch/callback
+AUTH_STORAGE=memory
+PUBLIC_DEPLOYMENT=false
+TOWN_DEMO_MODE=true
+SUPABASE_URL=
+SUPABASE_SECRET_KEY=
+```
+
+Do not point this setup at a live Supabase database. Blank Supabase configuration means genuine account-data sections report unavailable; the separate subscriber demo still works. Developers can retain real data alongside the demo using an independently configured development database. Never use local durable authentication against a production database.
+
+From the repository root run `npm ci`, then `npm run dev`. Open **http://localhost:3000/account** and select **Connect with Twitch** using your own account. Basic login is sufficient; no community permissions or live EventSub connection is needed. Use `localhost` consistently with the registered callback. The subscriber fixture requires development mode, `TOWN_DEMO_MODE=true`, `PUBLIC_DEPLOYMENT` not true, and a localhost/127.0.0.1 request. It always fails closed under `npm start`, including with a demo query parameter, header or environment flag.
+
+### Judge walkthrough
+
+1. After login, open **http://localhost:3000/dashboard**. Click **Try Subscriber Experience** in the **Development Demo — Simulated Subscription** section. You do not need to create a town.
+2. **My Home in Maplebrook** appears with MaplebrookLive marked fictional and the property marked simulated. Click **Open My House**, or open **http://localhost:3000/my-houses** to find the same card alongside any genuine properties.
+3. The demo property opens at **http://localhost:3000/demo/subscriber/house**, using the existing editor. Change its name, roof/wall/door/fence colors, garden or accent, then **Apply to demo town**. Navigate back to My Houses and reopen it: saved changes remain for this login.
+4. Click **Find My House** beneath the editing tools. The map scrolls into view and frames the actual assigned house with surrounding roads and a gentle five-second outline. Pan or zoom away, then try again. Manual map input cancels camera travel. Reduced motion frames immediately with static emphasis. A missing house produces a message instead of selecting another building.
+5. Click **View Town**, or open **http://localhost:3000/demo/subscriber/town**. Verify **15 simulated subscribers, 15 subscriber homes, 2 Neighborhoods**, the animated Mayor Maple, and your customized cottage. This page also has **Find My House**, with no streamer management controls. Return using **My Houses**.
+6. On Dashboard or My Houses, **Reset subscriber demo** restores the original layout and appearance. Repeated activation/navigation does not create more houses.
+7. Also check **http://localhost:3000/demo/house-editor**: its existing first-cottage editor now uses the same Find My House implementation. Genuine subscriber editors at `/my-houses/<townId>/<houseId>` use it too; ordinary ownership and active-membership checks still protect real saves.
+
+### State, isolation and known limits
+
+The stable seed is `211101`. The normal allocator fills twelve starter cottages, constructs three more homes and appends one generated district, yielding two user-facing neighborhoods. The authenticated viewer receives allocation thirteen; the other fourteen identities are fictional. No counters, ownership rules or expansion rules are overridden.
+
+The server keeps a separate fixture per authenticated login, keyed by a digest of the session ID and checked against the authenticated Twitch user ID. The fixture has no database or Twitch API adapter. Only the assigned house may be changed, through strict exterior validation, same-origin/CSRF checks and revision conflict detection. Raw ownership/world-update fields are rejected. Its non-UUID town ID is not accepted by the genuine property APIs. Fictional membership never becomes proof of a real subscription or town administration.
+
+Refreshes and navigation preserve the fixture for up to **eight hours**. Reset, server restart, a new login/session, or expiry starts a fresh fixture. Sign-out immediately denies access to the old fixture; expired entries are cleaned on subsequent access. Memory is bounded to 50 fixture sessions. This is deliberately not persistent storage. Real Twitch login/identity is genuine; Maplebrook membership, houses, customization and reset are simulated. Ordinary genuine property saves still require verified subscription entitlement.
+
+Automated tests cover generation, fresh/mixed-role accounts, navigation contracts, customization, session/CSRF/ownership checks, production gates and camera geometry. They do **not** establish successful browser OAuth, WebGL appearance, responsive interaction or OBS visual behavior. Manually check the walkthrough, reduced motion, returning after refresh, genuine property editing when available, and existing Overview/Mayor/OBS behavior.
+
+After `npm run build`, `node scripts/check-subscriber-demo-production.mjs` starts a temporary local production process with synthetic configuration and database access disabled, asserts 404 for all demo API methods and both demo pages, then stops it. This is HTTP-only verification, not browser automation.
+
+Prompt 021 file inventory:
+
+- `src/lib/houses/subscriber-demo.ts`, `subscriber-demo-http.ts`, `subscriber-demo.test.ts`, and `customization.ts`.
+- `src/app/api/demo/subscriber/route.ts`; `src/app/demo/subscriber/layout.tsx`, `house/page.tsx`, `town/page.tsx`.
+- `src/app/dashboard/page.tsx`, `src/app/my-houses/page.tsx`.
+- `src/components/subscriber-demo-entry.tsx`, `subscriber-demo-town.tsx`, `property-town-map.tsx`, `account-dashboard.tsx`, `property-cards.tsx`, `owned-house-editor.tsx`, `house-editor.tsx`, `demo-house-editor.tsx`, `town-preview.tsx`, `town-canvas.tsx`.
+- `src/lib/rendering/house-focus.ts`, `house-focus.test.ts`, `create-renderer.ts`; renderer test doubles in `src/lib/overlay/preview.test.ts` and `src/lib/simulation/mayor-reactions.test.ts`.
+- `scripts/check-subscriber-demo-production.mjs` and this README.
+
 ## Subscriber housewarming highlights (Prompt 020C)
 
 Successful new housing assignments carry the allocator's actual house ID and subscriber display name in ephemeral presentation metadata. Existing cottages and newly built homes receive a soft gold outline, four roof sparkles and a short label for five seconds, with a smooth fade. Ownership, allocation and saved-world data are unchanged. Renewals without a new assignment, imports, subscriber synchronization and refreshed views do not replay highlights.

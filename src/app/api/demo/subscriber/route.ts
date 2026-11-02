@@ -1,0 +1,10 @@
+import { getAuthService } from "@/lib/auth/server";
+import { SubscriberDemoStore } from "@/lib/houses/subscriber-demo";
+import { subscriberDemoHandlers } from "@/lib/houses/subscriber-demo-http";
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+const runtimeStore = globalThis as typeof globalThis & { subscriberDemo?: SubscriberDemoStore };
+const handlers = subscriberDemoHandlers(getAuthService, runtimeStore.subscriberDemo ??= new SubscriberDemoStore());
+export const GET = handlers.GET;
+export const POST = handlers.POST;
+export const PATCH = handlers.PATCH;

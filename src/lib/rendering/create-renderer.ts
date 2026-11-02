@@ -9,6 +9,7 @@ import { spotlightComposition, type DisplaySettings } from "../overlay/model";
 import { attachMayorReaction } from "./mayor-reaction";
 import { housewarmingTargets } from "./housewarming";
 import { drawHousewarming } from "./draw-housewarming";
+import { houseFocusCamera, houseFocusPose, type CameraPose } from "./house-focus";
 
 export type TownRenderer = {
   update: (session: TownSession) => void;
@@ -18,6 +19,7 @@ export type TownRenderer = {
   destroy: () => void;
   setDisplay: (settings: DisplaySettings) => void;
   focusEvent: (position: { x: number; y: number }, seconds: number) => void;
+  focusHouse: (houseId: string) => boolean;
 };
 
 /** Browser-only owner of GPU resources, ticker, camera and native listeners. */
@@ -69,6 +71,8 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     const effectsLayer = new Container(); world.addChild(effectsLayer);
     const effects = new Map<string, Container>();
     const homes = new Map<string, ReturnType<typeof drawHousewarming>>();
+    let houseTravel: { from: CameraPose; to: CameraPose; start: number } | null = null;
+    let selectedHome: { visual: ReturnType<typeof drawHousewarming>; start: number } | null = null;
     const cull = () => scene.cull({ x: -world.x / world.scale.x, y: -world.y / world.scale.x,
       width: app.screen.width / world.scale.x, height: app.screen.height / world.scale.x });
     const update = (next: TownSession) => {
@@ -131,6 +135,15 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     app.ticker.maxFPS = 60;
     app.ticker.add((ticker) => {
       const dt = Math.min(ticker.deltaMS / 1000, 0.05); elapsed += dt;
+      if (houseTravel) {
+        const pose = houseFocusPose(houseTravel.from, houseTravel.to, (elapsed - houseTravel.start) * 1000, reducedMotion);
+        world.position.set(pose.x, pose.y); world.scale.set(pose.scale); cull();
+        if (reducedMotion || elapsed - houseTravel.start >= 0.65) houseTravel = null;
+      }
+      if (selectedHome) {
+        selectedHome.visual.update((elapsed - selectedHome.start) * 1000, reducedMotion, true, world.scale.x);
+        if (elapsed - selectedHome.start >= 5) { selectedHome.visual.view.destroy({ children: true }); selectedHome = null; }
+      }
       const state = snapshot.runtime.mayor;
       const walking = state.targetNodeId !== null;
       const blend = reducedMotion ? 1 : Math.min(1, dt * 15);
@@ -191,6 +204,7 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       world.position.set(position.x, position.y); cull();
     };
     const reset = () => {
+      houseTravel = null;
       const camera = display?.mode === "living-town" ? followCamera(bounds, app.screen.width, app.screen.height, snapshot.runtime.mayor.position)
         : display ? coverCamera(bounds, app.screen.width, app.screen.height) : fitCamera(bounds, app.screen.width, app.screen.height); fit = camera.scale;
       world.scale.set(fit);
@@ -204,17 +218,32 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
       }
     };
     const zoomAt = (factor: number, x: number, y: number) => {
+      houseTravel = null;
       const old = world.scale.x;
       const next = Math.max(fit * 0.7, Math.min(Math.max(3.5, fit * 3.5), old * factor));
       world.position.set(x - (x - world.x) * next / old, y - (y - world.y) * next / old);
       world.scale.set(next); clampCamera();
     };
     const zoom = (factor: number) => zoomAt(factor, app.screen.width / 2, app.screen.height / 2);
-    const pan = (dx: number, dy: number) => { world.x += dx; world.y += dy; clampCamera(); };
+    const pan = (dx: number, dy: number) => { houseTravel = null; world.x += dx; world.y += dy; clampCamera(); };
+    const focusHouse = (houseId: string) => {
+      if (destroyed || display) return false;
+      const to = houseFocusCamera(snapshot.world, houseId, app.screen.width, app.screen.height);
+      const house = snapshot.world.buildings.find((building) => building.kind === "house" && building.id === houseId);
+      if (!to || !house) return false;
+      houseTravel = { from: { x: world.x, y: world.y, scale: world.scale.x }, to, start: elapsed };
+      if (reducedMotion) { world.position.set(to.x, to.y); world.scale.set(to.scale); cull(); houseTravel = null; }
+      selectedHome?.visual.view.destroy({ children: true });
+      selectedHome = { visual: drawHousewarming(""), start: elapsed };
+      selectedHome.visual.view.position.set(house.position.x, house.position.y); effectsLayer.addChild(selectedHome.visual.view);
+      selectedHome.visual.update(300, true, true, world.scale.x);
+      return true;
+    };
     reset();
     update(initial);
     const resize = () => {
       if (destroyed) return;
+      houseTravel = null;
       if (display) {
         const viewport = rendererViewport(host, window.devicePixelRatio);
         if (viewport.width === app.screen.width && viewport.height === app.screen.height && viewport.resolution === app.renderer.resolution) return;
@@ -289,7 +318,7 @@ export async function createTownRenderer(host: HTMLElement, initial: TownSession
     return { update: (next) => {
       const previousGeometry = geometry; update(next);
       if (display?.mode === "spotlight" && previousGeometry !== geometry) reset();
-    }, zoom, pan, reset, destroy,
+    }, zoom, pan, reset, destroy, focusHouse,
       setDisplay: (settings) => { if (display && JSON.stringify(display) !== JSON.stringify(settings)) { display = settings; reset(); } },
       focusEvent: (position, seconds) => { if (display && Number.isFinite(position.x) && Number.isFinite(position.y)) focus = { ...position, until: elapsed + Math.max(0, Math.min(8, seconds)) }; },
     };
