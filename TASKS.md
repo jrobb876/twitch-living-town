@@ -1,5 +1,17 @@
 # Twitch Living Town — Task tracker
 
+## Prompt 023 — Judge installation and evaluation readiness
+
+- [x] Audit package/lockfile, Next environment precedence, auth/database configuration, six migrations/nine server RPC entry points, route/API demo gates, and single-instance deployment requirements. No missing source schema dependency found; the live project's historical state was not inspected.
+- [x] Replace the history-first README with the requested 15-section evaluation guide: cross-platform setup, credential-free walkthrough, actual demo routes, own-app Twitch setup, complete Supabase sequence, environment reference, feature matrix, production differences and troubleshooting.
+- [x] Correct stale database-guide migration counts, memory-only auth statements and removed Reload saved town instructions. Add read-only readiness/privilege SQL. Refresh example environment comments and deployment cross-references without changing private configuration or application behavior.
+- [x] Confirm `.env.local` is ignored. Redacted heuristic scan of 248 tracked/nonignored working-tree files found zero credential-pattern candidates. This is not an exhaustive Git-history audit or guarantee against every secret format; ignored private files were not printed or copied.
+- [x] Isolated Windows clean install from the committed lockfile: 489 packages installed. Copy only tracked source plus safe example configuration; leave workspace dependencies and private env untouched. TypeScript, lint and all 288 tests passed using this clean installation (zero failures/skips).
+- [x] Production build passed with safe example configuration and no real credentials. Isolated HTTP probes verified credential-free homepage/Overview (with and without tracking query)/practice editor/expanded preview; auth reports the expected unconfigured 503. Production hides Maplebrook pages/API and expanded preview even with the demo flag true. Tracked/new-file Git diff checks passed; only five documentation/example files changed.
+- [ ] Manual verification by evaluator: fresh Twitch app/account, new hosted Supabase project, browser/Pixi/OBS and macOS/Linux installation. SQL tests use disposable embedded PostgreSQL only; no live migrations/services, browser automation, commits, pushes or deployment.
+
+The sections below retain historical milestone records. Current judge setup and feature availability are documented in README; older pending manual checklists are not proof of current external-service verification.
+
 ## Prompt 020 — Unified Twitch community connection
 
 - [x] Audit scope upgrades, session lifecycle, historical import/sync, shared EventSub readiness and duplicated controls; keep the existing OAuth/EventSub architecture and scopes.

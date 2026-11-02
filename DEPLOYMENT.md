@@ -1,6 +1,6 @@
 # Living Town: public deployment and recovery
 
-Assessment date: October 29, 2026. Target: a small, supervised hackathon demonstration before November 2. **Code is prepared; deployment is conditional on manual migration, configuration and a real HTTPS/OBS rehearsal.** No hosting account, live database or external settings were changed during this work.
+Original assessment: October 29, 2026; setup references reviewed November 2. Target: a small, supervised hackathon demonstration. **Deployment remains conditional on manual migration, configuration and a real HTTPS/OBS rehearsal.** No hosting account, live database or external settings were changed during this audit. Independent evaluators should start with [README.md](README.md) and use their own Twitch application and Supabase project. Historical milestone findings below are not a claim that deployment has been completed.
 
 ## Readiness assessment
 
@@ -16,7 +16,7 @@ Assessment date: October 29, 2026. Target: a small, supervised hackathon demonst
 | Important before judging | No readiness endpoint or deployment recipe. | Added `/api/health`, `render.yaml`, environment checks, security response headers and this runbook. Complete manual HTTPS, restart and OBS checks. |
 | Important before judging | Provider/proxy logs may contain OAuth callback query strings or authorization headers. | Application logs omit secrets; configure hosting/log drains to omit callback query strings, Cookie/Authorization and request bodies. Verify this in a rehearsal without sharing values. |
 | Safe to defer after hackathon | Distributed workers/leases, durable EventSub intake, background auto-restoration, broader quotas, CSP nonce rollout, large-scale performance profiling. | Explicitly deferred. Current implementation is not a horizontally scalable or lossless historical event service. |
-| Safe to defer after hackathon | New Mayor animations, expanded-town OBS demo preview, new Twitch event types, isometric art, cosmetics, monetization. | No implementation in this milestone. |
+| Later milestones | Mayor reactions, expanded-town OBS preview and follower integration were added after this original assessment. | See README for current functionality and demo gates; isometric art and monetization remain outside scope. |
 
 ## Architecture and provider choice
 
@@ -78,7 +78,7 @@ Local development/localhost production defaults to memory auth unless `AUTH_STOR
 After a normal restart, saved worlds, OBS access and unexpired durable login sessions survive. **Sockets, received-message counters, transient effects and running sync jobs do not. Automatic channel restoration is deferred deliberately; no connection-intent storage or competing reconnect worker has been added.**
 
 1. Wait for `/api/health` to report ready. Refresh `/account` or dashboard. If the eight-hour session expired or Twitch revoked access, reconnect with Twitch; otherwise the existing cookie should restore your profile after validation.
-2. Click **Connect Chat** and **Connect subscription events** for the signed-in broadcaster. Existing permission grants should not need another consent screen unless scopes were revoked. Repeated connect clicks reuse one channel connection; dashboard input cannot choose a foreign channel.
+2. Use **My Town → Community → Connect My Twitch Community** for the signed-in broadcaster. Individual **Connect Chat** and subscription controls remain in **Advanced Settings & Troubleshooting**. Existing grants should not need another consent screen unless permissions changed. Repeated connects reuse the channel connection; dashboard input cannot choose a foreign channel.
 3. Wait for subscription readiness, send a new chat message, then run **Sync Subscribers**. Sync repairs current membership/allocation after missed deliveries; it cannot reconstruct missed chat or historical gift totals. Interrupted sync should be retried, not treated as completed.
 4. OBS polls recover automatically using the same URL, but show disconnected activity until Twitch connections are restored. Do not replace that diagnostic with simulated events.
 5. If a new deployment fails after claiming auth ownership, restart the retained/rolled-back app process so it can claim the store again. An old fenced process does not silently reclaim ownership and fight the replacement. During a routine socket/network interruption within the same process, existing EventSub reconnect/backoff/session-transfer logic continues to work.

@@ -1,86 +1,84 @@
-# Living Town database migrations
+# Living Town database setup
 
-Apply migrations manually, in order, once to your chosen Supabase project. The application never applies migrations automatically. Tests apply the files only to disposable embedded PostgreSQL.
+Use your own isolated Supabase project for evaluation. The application never applies SQL automatically. All six migrations are committed; tests apply them only to disposable embedded PostgreSQL. Hosted Supabase initialization and the developer's live schema were not inspected during this audit.
 
-**Current public-deployment sequence is 001–006.** Migration 006 (`202610290006_durable_auth.sql`) adds a private auth snapshot and three service-role-only RPCs; it does not rewrite towns or change existing RPC grants. Review/apply the full transaction once after 005, using the same trusted owner. An accidental rerun fails at table creation and rolls back. No direct auth table access is granted even to service_role. Public deployments require `AUTH_STORAGE=supabase`; local memory mode does not use this table. Keep `SESSION_SECRET` stable and never share the auth database between running production/staging/local instances. See [the deployment and recovery runbook](../DEPLOYMENT.md) before application. Earlier memory-only auth limitations below are superseded by 006; EventSub delivery queues/sockets remain process-local.
+## Fresh project
 
-- **001 — `migrations/202610280001_persistent_towns.sql`** creates the initial persistent town schema. Existing installations that applied 001 must not rerun it.
-- **002 — `migrations/202610280002_subscriber_housing.sql`** is required for Prompt 006. It permits verified inactive subscriber status, adds tier/gift/evidence columns, extends event receipt types with subscription end, adds the private last-sync projection with RLS and no direct role grants, and replaces the existing projection helper. It retains town data, geometry, customization, RPC names and allocation constraints. Review and apply the whole file in one SQL Editor transaction after 001. Track both files in migration history when using the CLI.
+1. Create a Supabase project. Keep its database password private; the app uses a server API key instead.
+2. Ensure the Data API is enabled and exposes `public`. The standard Supabase roles `anon`, `authenticated`, `service_role` must exist. These migrations require no external seed, storage bucket, Supabase Auth provider or separate extension setup.
+3. Review and apply each **complete file once in this order**, through SQL Editor as the same trusted database owner/administrator:
 
-- **003 — `migrations/202610280003_house_portal.sql`** adds `living_town_owned_towns(text)` for My Houses, using the existing house-owner index. Only `service_role` can execute it; no new tables, memberships or data changes. Apply after 001/002 as the same database administrator. It is apply-once: a rerun fails on the existing function and aborts the transaction. Do not grant it to browser roles.
+   | Order | Migration | Purpose |
+   | --- | --- | --- |
+   | 001 | [202610280001_persistent_towns.sql](migrations/202610280001_persistent_towns.sql) | Initial tables, projections, RLS and create/load/commit RPCs |
+   | 002 | [202610280002_subscriber_housing.sql](migrations/202610280002_subscriber_housing.sql) | Verified subscriber evidence and sync projection |
+   | 003 | [202610280003_house_portal.sql](migrations/202610280003_house_portal.sql) | Owned-town lookup |
+   | 004 | [202610290004_neighborhood_expansion.sql](migrations/202610290004_neighborhood_expansion.sql) | Append-only growth validation and commit update |
+   | 005 | [202610290005_obs_display.sql](migrations/202610290005_obs_display.sql) | OBS settings/grants and display RPCs |
+   | 006 | [202610290006_durable_auth.sql](migrations/202610290006_durable_auth.sql) | Durable authentication and process fencing |
 
-For an existing configured project, apply only migrations not yet applied, then fully restart the application. Existing evidence is populated as subscribers are verified; migrations do not fabricate memberships or grant Twitch scopes. New installations follow the full setup below, applying 001, 002, then 003. Never rerun applied migrations to enable the portal.
+4. Obtain the Project URL and a **secret API key** (`sb_secret_…`), and set `SUPABASE_URL` / `SUPABASE_SECRET_KEY` in ignored `.env.local`. The application requires this new key format: publishable/anon keys, legacy JWT service-role keys and database passwords are not accepted. Never use `NEXT_PUBLIC_` for secrets. See [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys).
+5. Configure your own Twitch app as described in [README](../README.md#twitch-oauth-setup). For local evaluation, keep `AUTH_STORAGE=memory`; town data still persists. Restart Node after configuration changes.
+6. Sign in and open `/dashboard`. Authenticated `GET /api/town` should return `storage: "supabase"`; `town: null` is expected before onboarding. Create your town through `/onboarding`, then reopen `/town-overview` to verify automatic loading. A storage error must be fixed, not replaced by a demo town.
+7. To rehearse persistent auth, use `AUTH_STORAGE=supabase` only with this separate development database and migration 006. Keep `SESSION_SECRET` stable. Never point a local/staging auth writer at production: claiming its singleton store fences the existing process.
 
-### Migration 002 review
+For existing projects, apply **only pending migrations**. Back up existing data before schema work. These files are transactional but **not idempotent**; reruns fail on existing objects/removed constraints and abort. Do not run fragments, drop tables or bypass errors. Roll back any aborted SQL session before continuing. SQL Editor applications need your own migration record; do not assume they populate CLI migration history.
 
-Apply 002 using the same trusted database owner/administrator used for 001. Its `service_role` revocations are intentional: the server repository calls only `living_town_create`, `living_town_load` and `living_town_commit`, whose execute grants from 001 remain intact. These SECURITY DEFINER entry points run as their owner and call the private projection helper internally. Do not grant direct projection-table access or helper execution to `service_role`, `anon` or `authenticated`. `CREATE OR REPLACE` preserves the helper's owner; its empty search path and qualified table references are retained.
+## Readiness checks
 
-The database RPCs trust the server role, not a Twitch JWT. Next.js resolves the validated Twitch identity, checks town ownership and CSRF, and accepts bounded settings/actions rather than arbitrary owner/world claims. The commit RPC additionally checks supplied ownership against the stored town, revisions and immutable geometry/property identity. A holder of the server secret is trusted across towns; RLS is not per-streamer isolation for that key. Browser roles cannot execute these RPCs or the helper.
-
-Removing `subscriber_status_check` intentionally permits false (verified expiry); the column remains nullable boolean, giving true/false/unknown. Server Zod schemas validate evidence and allowed event states, and SQL retains tier/source, housing, foreign-key and uniqueness constraints. No replacement boolean check is needed merely to admit all three valid states.
-
-002 is **apply-once, not idempotent**. An accidental full-file rerun fails at its first ALTER because the old constraint is already absent. The transaction aborts without changing data or permissions. Roll back an aborted SQL session before continuing; do not bypass the error by executing fragments. Offline tests exercise a populated 001 upgrade, actual service-role RPC writes, browser/helper denial, retained customization/layout/Mayor/residents, inactive evidence and rerun rollback. They do not inspect the live Supabase project.
-
-1. Review the SQL in Git. Confirm the selected Supabase project is the intended environment. Back up an existing database before schema work.
-2. In that project's SQL Editor, paste the complete migration and run it as the database administrator. It runs inside one transaction and creates only `living_town_*` objects plus `living_towns`. It does not remove or rename existing application tables. If those names already exist, stop and inspect rather than dropping them or rerunning parts of the file.
-3. Ensure Supabase's Data API is enabled and exposes `public`. The application uses four PostgREST RPCs after migration 003: create/load/commit and owned-town lookup. Browser roles have no privileges on these tables or functions; only `service_role` can execute the entry points. Internal helper functions are not granted to that role.
-4. In Supabase project settings, copy the Project URL and a **secret API key** (`sb_secret_...`) into the ignored local `.env.local` as `SUPABASE_URL` and `SUPABASE_SECRET_KEY`. Do not use a publishable/anon key, database password, Supabase Auth JWT, or `NEXT_PUBLIC_` variable. This configuration deliberately requires the new secret-key format. Leave existing Twitch configuration intact. Never paste keys into a ticket or chat.
-5. Fully restart `npm run dev`, sign in through Twitch, and select **Reload saved town**. A successful `GET /api/town` response with `storage: "supabase"` and `town: null` verifies the API connection and migration even before town creation. The UI then offers **Create my town**. A configuration/migration/unavailable error does not create a replacement in memory.
-
-Optional SQL Editor verification (no credentials or personal data returned):
+These optional read-only queries can be run by the owner in your own project's SQL Editor. They return object/permission metadata, not credentials or resident records.
 
 ```sql
+select signature,
+       to_regprocedure(signature) is not null as installed,
+       case when to_regprocedure(signature) is not null then
+         has_function_privilege('service_role', to_regprocedure(signature), 'execute') end as server_execute,
+       case when to_regprocedure(signature) is not null then
+         has_function_privilege('anon', to_regprocedure(signature), 'execute') end as anon_execute,
+       case when to_regprocedure(signature) is not null then
+         has_function_privilege('authenticated', to_regprocedure(signature), 'execute') end as browser_execute
+from (values
+  ('public.living_town_create(jsonb,jsonb)'),
+  ('public.living_town_load(uuid,text)'),
+  ('public.living_town_commit(text,jsonb,bigint,jsonb)'),
+  ('public.living_town_owned_towns(text)'),
+  ('public.living_town_display_manage(text,uuid,text,jsonb,text)'),
+  ('public.living_town_display_read(uuid,text)'),
+  ('public.living_town_auth_claim(uuid)'),
+  ('public.living_town_auth_check(uuid)'),
+  ('public.living_town_auth_save(uuid,jsonb,jsonb)')
+) as required(signature);
+-- Nine rows: installed=true, server_execute=true,
+-- anon_execute=false, browser_execute=false.
+
 select relname, relrowsecurity
 from pg_class
-where relnamespace = 'public'::regnamespace
-  and relkind = 'r'
+where relnamespace = 'public'::regnamespace and relkind = 'r'
   and (relname = 'living_towns' or relname like 'living_town_%')
 order by relname;
-
-select has_function_privilege('anon', 'public.living_town_load(uuid,text)', 'execute') as anon_can_read,
-       has_function_privilege('authenticated', 'public.living_town_commit(text,jsonb,bigint,jsonb)', 'execute') as browser_can_write,
-       has_function_privilege('service_role', 'public.living_town_create(jsonb,jsonb)', 'execute') as server_can_create;
--- Expect all nine tables after migration 002 to have RLS true, then false / false / true.
+-- Every application table listed must have relrowsecurity=true.
 ```
+
+Missing objects usually mean an unapplied/failed migration or wrong project. Permission differences need investigation; do not grant broad access as a workaround. `/api/health` checks auth readiness and, in durable mode, its storage/writer; it does not validate every town RPC. Follow the signed-in town round trip above as well.
 
 ## Data and transaction contract
 
-`living_towns.world` is the canonical, validated **schemaVersion 1 / generatorVersion 1** snapshot of the existing `TownWorld`. It contains stable layout, districts, plots, houses, residents, Mayor settings and gift reconciliation. The other tables are relational projections maintained inside the same transaction, with foreign keys, uniqueness and query indexes. They are not a second independently editable world. Do not edit projection tables through the Table Editor or write snapshots outside these RPCs.
+`living_towns.world` is the validated schemaVersion 1 / generatorVersion 1 canonical world. Relational projections are updated within the same transaction. Server-generated world updates use owner checks, expected revisions, row locking and unique event receipts. Concurrent writers retry against current state; failed commits roll back. Existing houses, ownership/customization, district geometry and Mayor settings are preserved by the allocation/growth rules. Growth appends validated neighborhoods rather than regenerating existing layouts.
 
-- `living_town_create`: per-owner transaction lock and unique owner constraint; repeated/concurrent creation returns the existing town. Initial residents and property owners must be empty. Profile information comes from the verified Twitch session.
-- `living_town_load`: load by UUID or owner ID. Next.js restricts private reads to the authenticated owner and sanitizes public reads.
-- `living_town_commit`: locks the town row, verifies the server-supplied owner against the stored owner, checks the expected revision, records any verified durable event, then updates the snapshot and relational projections atomically. A conflicting revision causes a bounded read/reapply retry for verified events; interactive edits instead return HTTP 409. Unique `(town_id,event_id)`, `(town_id,plot_id)` and `(town_id,owner_twitch_user_id)` constraints prevent duplicate processing, plot collisions and multiple houses for a user within a town. Event recording rolls back if allocation fails.
+Migration 002 intentionally allows subscriber status false for verified expiry; the nullable boolean represents true/false/unknown. Evidence tier/source constraints and application validation remain. Its revocations on the sync table and private projection helper are intentional: server-role RPC entry points execute as their trusted owner and invoke helpers internally. Do not grant direct helper access. Migration 004 replaces the commit function without removing its existing grants.
 
-House identity is the composite `(town UUID, existing house ID)` so the original renderer's `home-*` IDs remain stable. A user may own a property in each of several independent towns. Unclaimed starter houses have no owner; a verified subscription first allocates an original empty expansion plot, then an unclaimed starter house, then a newly generated lot. Fewer than four available lots adds twelve; failures/overflow retain waitlist records.
+Subscriber sync establishes current verified membership, not historical tenure or gift history. Ended houses remain legacy. House saves accept only allowed exterior changes and require the authenticated owner plus current membership verification through the streamer's authorized Twitch session. Login/chat/fixture membership cannot grant permanent properties.
 
-Names, Mayor settings and server-side house customization data can be saved without relocating houses. Existing layout coordinates, seed, plot identities, assigned property ownership and core generator version remain immutable. Migration 004 permits append-only neighborhoods under the same commit transaction. A future generator upgrade must explicitly migrate an existing snapshot; loading an unsupported version fails safely instead of regenerating it. Add a new versioned SQL migration for future schema changes; do not edit an already-applied migration. Track manual application in the project's migration history if using the Supabase CLI workflow.
+## Access boundaries
 
-### Migration 004 — automatic neighborhoods
+Twitch authentication is independent of Supabase Auth: no Supabase user/JWT or `auth.uid()` mapping is needed. Next.js validates Twitch identity, ownership and CSRF/origin before actions. Browser roles have neither table access nor RPC execution. `SECURITY DEFINER` entry points have empty search paths and qualified references. The secret-key service role is trusted across towns, so server authorization remains essential; RLS cannot protect against a compromised server secret.
 
-After 001–003, review and manually apply `migrations/202610290004_neighborhood_expansion.sql` as the same trusted administrator. No existing rows are changed by the migration. The new private `living_town_assert_growth(jsonb,jsonb)` helper has no grants to PUBLIC, anon, authenticated or service_role. The existing SECURITY DEFINER commit runs as its owner, invokes the helper, and retains its existing service_role-only grant. Ownership and bounded inputs are still enforced in Next.js. District recipe/seed/bounds live in the canonical world; the existing project helper inserts district/plot/house projections atomically.
+The public world projection includes layout and visible house/Mayor settings, not private owners, membership or auth data. Do not put secrets in visible names. No client API accepts arbitrary world snapshots or fabricated verified Twitch events.
 
-Growth preserves old array prefixes, navigation coordinates/edges and property identity; overlapping new lots are rejected. Only verified subscription-type receipts can accompany growth. A failed transaction rolls back its receipt, snapshot and projections together. A separate no-growth retry can record membership and allocate existing capacity or waitlist the subscriber. Total outages still fail and require delivery retry/fresh sync. This does not add a durable background queue.
+Migration 006 stores HMACed session identifiers and AES-256-GCM encrypted OAuth credentials/revocations. It does not encrypt the entire JSONB record: trusted administrators can read public profile fields, scopes and timestamps. Only the auth claim/check/save RPCs are granted to service_role; direct auth-table access remains denied. One active process owns the durable runtime. Expiration/revocation persists, failed writes fail closed, and startup revalidates restored sessions. Existing town/housing/OBS records are untouched. See [deployment and recovery](../DEPLOYMENT.md).
 
-Apply the entire file once. An accidental full-file rerun errors because the helper already exists and aborts the transaction; it does not partially replace the commit. Do not bypass that error by executing selected statements. Disposable PostgreSQL tests cover populated upgrades, role boundaries, concurrent expansion, projection rollback, reload and retry; the live Supabase database is not contacted by tests.
+## Validation scope and limitations
 
-## Security and privacy
+`npm test` applies 001–006 to disposable PGlite PostgreSQL fixtures and tests permissions, upgrades, rollback, allocation, growth, customization, OBS access and durable auth. It does not contact Supabase or read `.env.local`. Source review found all application RPC dependencies represented in these files; it cannot prove the absence of historical changes in an uninspected live project. Hosted gateway configuration and a new real project still need manual verification.
 
-Twitch authentication remains independent of Supabase Auth. A Twitch session is not a Supabase JWT and has no `auth.uid()` mapping. Next.js validates the Twitch session, origin, CSRF token and town ownership before mutations. Secret keys bypass RLS, so server authorization is mandatory. RLS with no browser policies, explicit privilege revocations and server-role-only `SECURITY DEFINER` entry points prevent direct browser access. The functions use an empty search path and qualified table names. Administrative credentials stay in a `server-only` composition module.
-
-Protected routes accept only bounded settings/actions, never an owner ID or arbitrary world snapshot. There is no browser endpoint for simulated events, verified-event ingestion or direct house allocation. The house customization endpoint accepts only allowlisted exterior fields, validates the subscriber session/CSRF, checks property ownership and active evidence, verifies current membership through the broadcaster's existing authorized session, then uses the original revision-checked commit. Legacy properties are read-only. Listing derives the user ID from the session and returns only their own properties, including across multiple towns.
-
-`applyVerifiedEvent` is called by the server-side verified Helix/EventSub adapter; the source label itself is not a verifier. Subscription controls require a validated same-account grant, saved town ownership and CSRF. Property ownership alone never proves current entitlement. The portal adds no direct client access to Supabase and no new grant to the private projection helper.
-
-Follower status remains true-or-unknown. After migration 002, subscriber status is `true` for verified membership, `false` for verified expiry/absence, otherwise `NULL` (unknown). Tier, gift flag, source and verification time come from the verified evidence. Historical/current entitlement is never inferred from login, chat or a starter house. A complete subscriber import establishes current membership, not historical tenure or gift history. Ended properties remain legacy; no cleanup deletes them. The sync summary is stored in the canonical world and mirrored in `living_town_subscriber_syncs` within the existing commit transaction.
-
-The public projection contains layout, appearance, selected exterior settings (including house names) and Mayor display settings. It omits resident identities, house owners, unrelated/private customization metadata, profile information, subscription data, gifts and event outcomes. All created towns currently have public visual projections; private-town visibility controls are future work. Do not store sensitive information in public town, house or Mayor names.
-
-Chat content, chat event IDs, activity windows, movement, effects and OAuth tokens are **not** written to these tables. Processed durable event receipts store only identity/type/source/time and the processor outcome; there is no chat history table. Outcomes/gift reconciliation have no retention job yet. Snapshot/input size caps fail explicitly rather than truncating durable data.
-
-## Verification and limitations
-
-`npm test` executes all four migrations using PGlite (embedded PostgreSQL), including real transaction rollback, permissions, uniqueness, duplicate/concurrent allocation, subscriber synchronization, expansion, legacy retention, customization and reload tests. It does not contact Supabase or read `.env.local`. A real Supabase project's gateway, configuration and permissions still require the manual connectivity test above.
-
-Town data survives application restarts in Supabase. Twitch sessions, OAuth state, token refresh/revocation queues, chat sockets and activity remain process-local, so restart requires signing in again. Continue using one long-running Node process; persistence alone does not make authentication/EventSub serverless or multi-replica safe. Configure backups, account/town creation quotas, event retention and shared auth/socket coordination before public production rollout. Maximum snapshot size is approximately 1 MB, with an initial planning ceiling of 494 properties. Per-subscriber commits still rewrite the full snapshot/projections; batching and spatial streaming are future work. No destructive reset/delete API is implemented.
-
-References: [Supabase secret keys](https://supabase.com/docs/guides/getting-started/api-keys), [database functions and execution permissions](https://supabase.com/docs/guides/database/functions), [RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
+Saved towns survive restarts. In memory-auth mode, sign in again; durable auth can restore unexpired sessions. OAuth state, live sockets, activity/reaction queues and in-flight jobs remain process-local. Reconnect via **Connect My Twitch Community** and retry incomplete imports after restart. Run one long-lived Node instance. Snapshot sizes, event receipts and town capacity are bounded; retention jobs, distributed workers and broader scaling remain future work.
